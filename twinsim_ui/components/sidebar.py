@@ -82,10 +82,14 @@ def sidebar() -> rx.Component:
     return rx.vstack(
         # ── EXL Logo Header ─────────────────────────────────────────────────
         rx.vstack(
-            rx.image(
-                src="/exl_logo.svg",
-                width="90px",
-                height="auto",
+            rx.text(
+                "EXL",
+                color="#E8461E",
+                font_size="38px",
+                font_weight="900",
+                letter_spacing="-0.03em",
+                line_height="1",
+                font_family="'Arial Black', 'Arial Bold', Arial, sans-serif",
             ),
             rx.text(
                 "Market Intelligence",
