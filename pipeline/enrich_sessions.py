@@ -41,6 +41,12 @@ import argparse
 import sys
 import pandas as pd
 
+# ── Windows UTF-8 fix ─────────────────────────────────────────────────────────
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # ── Column name mapping: content_catalogue → enriched_sessions ───────────────
 # content_catalogue.csv uses content_duration_minutes — matches session schema directly
 METADATA_RENAME = {}   # no renames needed; column names already aligned
@@ -77,7 +83,7 @@ ENRICHED_COLUMN_ORDER = [
 
 
 def load_sessions(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path, low_memory=False)
+    df = pd.read_csv(path, low_memory=False, encoding="utf-8")
     print(f"[INFO] session_events loaded : {len(df):,} rows × {len(df.columns)} cols")
     if "content_id" not in df.columns:
         raise ValueError("session_events.csv must contain a 'content_id' column.")
@@ -90,7 +96,7 @@ def load_sessions(path: str) -> pd.DataFrame:
 
 
 def load_metadata(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path, low_memory=False)
+    df = pd.read_csv(path, low_memory=False, encoding="utf-8")
     print(f"[INFO] content_catalogue loaded: {len(df):,} rows × {len(df.columns)} cols")
     if "content_id" not in df.columns:
         raise ValueError("content_catalogue.csv must contain a 'content_id' column.")
@@ -266,7 +272,7 @@ def main() -> None:
     print(f"[INFO] Enriching sessions ...")
     enriched = enrich(sessions, metadata)
 
-    enriched.to_csv(args.out, index=False)
+    enriched.to_csv(args.out, index=False, encoding="utf-8")
     print(f"\n[DONE] enriched_sessions.csv → {args.out}")
     print(f"       {len(enriched):,} rows × {len(enriched.columns)} columns")
 

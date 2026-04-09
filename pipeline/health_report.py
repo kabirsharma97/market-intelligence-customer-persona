@@ -52,10 +52,17 @@ import argparse
 import csv
 import json
 import os
+import sys
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+
+# ── Windows UTF-8 fix ─────────────────────────────────────────────────────────
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Module-level paths ────────────────────────────────────────────────────────
 
@@ -89,8 +96,8 @@ VALID_UNAVAIL_REASONS   = {"geo_block","content_pulled","search_no_result"}
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 def load_all() -> Tuple[pd.DataFrame, pd.DataFrame, list, list]:
-    sess = pd.read_csv(EVENTS_PATH)
-    prof = pd.read_csv(PROFILES_PATH)
+    sess = pd.read_csv(EVENTS_PATH, encoding="utf-8")
+    prof = pd.read_csv(PROFILES_PATH, encoding="utf-8")
     print(f"[INFO] session_events  : {len(sess):,} rows × {len(sess.columns)} cols")
     print(f"[INFO] user_profiles   : {len(prof):,} rows × {len(prof.columns)} cols")
     with open(DICT_EVENTS,   encoding="utf-8") as f: dd_ev = json.load(f)

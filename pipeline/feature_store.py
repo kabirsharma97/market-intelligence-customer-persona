@@ -89,12 +89,19 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
+
+# ── Windows UTF-8 fix ─────────────────────────────────────────────────────────
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -1152,11 +1159,11 @@ def main() -> None:
 
     # Load
     print(f"[INFO] Loading {args.events}...")
-    sess = pd.read_csv(args.events)
+    sess = pd.read_csv(args.events, encoding="utf-8")
     print(f"[INFO] session_events: {len(sess):,} rows × {len(sess.columns)} cols")
 
     print(f"[INFO] Loading {args.profiles}...")
-    prof = pd.read_csv(args.profiles)
+    prof = pd.read_csv(args.profiles, encoding="utf-8")
     print(f"[INFO] user_profiles : {len(prof):,} rows × {len(prof.columns)} cols")
 
     # Join
@@ -1178,7 +1185,7 @@ def main() -> None:
 
     # Compute
     fdf = compute_features(df)
-    fdf.to_csv(args.out, index=False)
+    fdf.to_csv(args.out, index=False, encoding="utf-8")
     print(f"[DONE] Feature store → {args.out}")
 
     write_registry(args.registry)

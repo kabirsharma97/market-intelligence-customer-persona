@@ -27,8 +27,15 @@ Exit codes:
 """
 
 import argparse
+import sys
 import pandas as pd
 import numpy as np
+
+# ── Windows UTF-8 fix ─────────────────────────────────────────────────────────
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 # ── Feature sets ──────────────────────────────────────────────────────────────
 
@@ -156,7 +163,7 @@ COMPLETION_ORDER = [
 
 
 def run_assessment(input_path: str) -> bool:
-    df = pd.read_csv(input_path)
+    df = pd.read_csv(input_path, encoding="utf-8")
     n  = len(df)
     print(f"Loaded : {n:,} rows × {len(df.columns)} columns")
     print(f"File   : {input_path}")
