@@ -45,11 +45,11 @@ def _step_dot(idx: int) -> rx.Component:
     )
 
 
-def _nav_item(label: str, page: str, step_idx: int, locked: bool = False) -> rx.Component:
+def _nav_item(label: str, page: str, step_idx: int) -> rx.Component:
     is_active = PipelineState.active_page == page
     return rx.hstack(
         rx.box(
-            width="3px", height="32px",
+            width="3px", height="36px",
             border_radius="0 2px 2px 0",
             background=rx.cond(is_active, styles.ACCENT, "transparent"),
             position="absolute", left="0", top="0",
@@ -60,55 +60,44 @@ def _nav_item(label: str, page: str, step_idx: int, locked: bool = False) -> rx.
                 label,
                 font_size="12px",
                 font_weight=rx.cond(is_active, "600", "400"),
-                color=rx.cond(
-                    is_active, "white",
-                    "#9ca3af" if not locked else "#4b5563"
-                ),
+                color=rx.cond(is_active, "white", "#9ca3af"),
                 flex="1",
             ),
             spacing="2", align="center", width="100%",
         ),
         position="relative",
-        padding="7px 12px 7px 16px",
+        padding="8px 12px 8px 16px",
         border_radius="6px",
         background=rx.cond(is_active, styles.SIDEBAR_ACTIVE_BG, "transparent"),
-        cursor=rx.cond(is_active, "default", "pointer") if not locked else "not-allowed",
-        on_click=PipelineState.go_to(page) if not locked else None,
+        cursor="pointer",
+        on_click=PipelineState.go_to(page),
         width="100%",
         _hover={"background": rx.cond(is_active, styles.SIDEBAR_ACTIVE_BG, "rgba(255,255,255,0.04)")},
         transition="all 0.15s ease",
-        min_height="32px",
+        min_height="36px",
     )
 
 
 def sidebar() -> rx.Component:
     return rx.vstack(
-        # ── Brand Header ────────────────────────────────────────────────────
-        rx.hstack(
-            # EXL logo box
-            rx.box(
-                rx.text("EXL", color="white", font_size="11px", font_weight="800",
-                        letter_spacing="0.04em"),
-                background=styles.ACCENT,
-                border_radius="6px",
-                width="36px", height="36px",
-                display="flex", align_items="center", justify_content="center",
-                flex_shrink="0",
+        # ── EXL Logo Header ─────────────────────────────────────────────────
+        rx.vstack(
+            rx.image(
+                src="/exl_logo.svg",
+                width="90px",
+                height="auto",
             ),
-            rx.vstack(
-                rx.text(
-                    "Market Intelligence",
-                    color="white", font_size="12px", font_weight="600",
-                    line_height="1.2",
-                ),
-                rx.text(
-                    "Customer Persona",
-                    color="#9ca3af", font_size="10px", line_height="1.2",
-                ),
-                spacing="0", align="start",
+            rx.text(
+                "Market Intelligence",
+                color="white", font_size="12px", font_weight="600",
+                line_height="1.3",
             ),
-            spacing="2", align="center",
-            padding="16px 12px 12px",
+            rx.text(
+                "Customer Persona",
+                color="#9ca3af", font_size="10px", line_height="1.2",
+            ),
+            spacing="1", align="start",
+            padding="18px 14px 14px",
             width="100%",
         ),
 
@@ -121,10 +110,10 @@ def sidebar() -> rx.Component:
                 font_size="9px", font_weight="700", color="#4b5563",
                 letter_spacing="0.12em", padding="12px 12px 6px",
             ),
-            _nav_item("01  Upload Dataset",            "upload",   0, locked=False),
-            _nav_item("02  Ingestion & Feature Check", "ingest",   1, locked=False),
-            _nav_item("03  Health & Quality Check",    "health",   2, locked=False),
-            _nav_item("04  Feature Engineering",       "features", 3, locked=False),
+            _nav_item("01  Upload Dataset",            "upload",   0),
+            _nav_item("02  Ingestion & Feature Check", "ingest",   1),
+            _nav_item("03  Health & Quality Check",    "health",   2),
+            _nav_item("04  Feature Engineering",       "features", 3),
             spacing="0", width="100%", align="start",
         ),
 
@@ -132,37 +121,34 @@ def sidebar() -> rx.Component:
 
         # ── Footer status ────────────────────────────────────────────────────
         rx.box(
-            rx.vstack(
-                rx.hstack(
-                    rx.box(
-                        width="6px", height="6px", border_radius="50%",
-                        background=rx.cond(
-                            PipelineState.step_status[3] == "complete",
-                            styles.GREEN, "#4b5563",
-                        ),
+            rx.hstack(
+                rx.box(
+                    width="6px", height="6px", border_radius="50%",
+                    background=rx.cond(
+                        PipelineState.step_status[3] == "complete",
+                        styles.GREEN, "#4b5563",
                     ),
-                    rx.text(
-                        rx.cond(
-                            PipelineState.step_status[3] == "complete",
-                            "Pipeline complete ✓",
-                            rx.cond(
-                                PipelineState.all_uploaded,
-                                "Files uploaded",
-                                "Awaiting input",
-                            ),
-                        ),
-                        font_size="11px",
-                        color=rx.cond(
-                            PipelineState.step_status[3] == "complete",
-                            styles.GREEN, "#6b7280",
-                        ),
-                        font_weight="500",
-                    ),
-                    spacing="2", align="center",
                 ),
-                spacing="1", align="start",
+                rx.text(
+                    rx.cond(
+                        PipelineState.step_status[3] == "complete",
+                        "Pipeline complete ✓",
+                        rx.cond(
+                            PipelineState.all_uploaded,
+                            "Files uploaded",
+                            "Awaiting input",
+                        ),
+                    ),
+                    font_size="11px",
+                    color=rx.cond(
+                        PipelineState.step_status[3] == "complete",
+                        styles.GREEN, "#6b7280",
+                    ),
+                    font_weight="500",
+                ),
+                spacing="2", align="center",
             ),
-            padding="12px",
+            padding="12px 14px",
             border_top=f"1px solid {styles.SIDEBAR_BORDER}",
             width="100%",
         ),

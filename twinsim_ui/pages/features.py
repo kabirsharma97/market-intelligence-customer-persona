@@ -27,7 +27,7 @@ def _assess_row(row: dict) -> rx.Component:
 
 def features_page() -> rx.Component:
     return rx.vstack(
-        # ── Running ───────────────────────────────────────────────────────────
+        # ── Running ────────────────────────────────────────────────────────────
         rx.cond(
             PipelineState.s4_running,
             rx.box(
@@ -37,8 +37,8 @@ def features_page() -> rx.Component:
                         rx.text("Running feature engineering pipeline…",
                                 font_size="14px", font_weight="600", color="#111827"),
                         rx.text(
-                            "feature_store 4.py — engineering 50 ML-ready features across "
-                            "5,000 users · then running 12-check quality assessment",
+                            "feature_store.py — engineering 50 ML-ready features · "
+                            "then running 12-check quality assessment",
                             font_size="12px", color="#6B7280",
                         ),
                         spacing="0", align="start",
@@ -54,7 +54,7 @@ def features_page() -> rx.Component:
             rx.box(),
         ),
 
-        # ── Error ─────────────────────────────────────────────────────────────
+        # ── Error ──────────────────────────────────────────────────────────────
         rx.cond(
             PipelineState.s4_error != "",
             rx.box(
@@ -70,23 +70,23 @@ def features_page() -> rx.Component:
             rx.box(),
         ),
 
-        # ── Feature store summary ──────────────────────────────────────────────
+        # ── Summary tiles ──────────────────────────────────────────────────────
         rx.grid(
             rx.vstack(
                 rx.text(PipelineState.s4_total_features.to_string(),
                         font_size="32px", font_weight="700", color=styles.ACCENT),
                 rx.text("ML Features", font_size="12px", font_weight="600", color="#374151"),
-                rx.text("in feature_store.csv", font_size="10px", color="#9CA3AF"),
+                rx.text("engineered in feature_store.csv", font_size="10px", color="#9CA3AF"),
                 spacing="0", align="center",
                 padding="16px", background=styles.ACCENT_BG,
                 border=f"1px solid {styles.ACCENT}", border_radius="12px",
                 flex="1",
             ),
             rx.vstack(
-                rx.text(PipelineState.s4_users.to_string(),
-                        font_size="32px", font_weight="700", color="#111827"),
-                rx.text("Users", font_size="12px", font_weight="600", color="#374151"),
-                rx.text("one row per user_id", font_size="10px", color="#9CA3AF"),
+                rx.text("Total Records (" + PipelineState.s4_users.to_string() + ")",
+                        font_size="18px", font_weight="700", color="#111827"),
+                rx.text("No. of Records", font_size="12px", font_weight="600", color="#374151"),
+                rx.text("from enriched session dataset", font_size="10px", color="#9CA3AF"),
                 spacing="0", align="center",
                 padding="16px", background="white",
                 border="1px solid #E5E7EB", border_radius="12px",
@@ -111,7 +111,7 @@ def features_page() -> rx.Component:
                     rx.text("—", font_size="32px", font_weight="700", color="#9CA3AF"),
                 ),
                 rx.text("Pass Rate", font_size="12px", font_weight="600", color="#374151"),
-                rx.text("gate: all must pass", font_size="10px", color="#9CA3AF"),
+                rx.text("gate: all checks must pass", font_size="10px", color="#9CA3AF"),
                 spacing="0", align="center",
                 padding="16px",
                 background=rx.cond(PipelineState.s4_all_passed,
@@ -124,56 +124,6 @@ def features_page() -> rx.Component:
             columns="4", spacing="3", width="100%",
         ),
 
-        # ── Feature categories breakdown ───────────────────────────────────────
-        rx.box(
-            rx.vstack(
-                rx.text("Feature Store Overview", font_size="14px",
-                        font_weight="600", color="#111827"),
-                rx.grid(
-                    rx.vstack(
-                        rx.text("Attention & Engagement",
-                                font_size="12px", font_weight="600", color="#374151"),
-                        rx.text("attention_decay_curve · binge_velocity · "
-                                "completion_momentum · session_volatility_index",
-                                font_size="11px", color="#6B7280"),
-                        padding="12px", background="#F9FAFB",
-                        border="1px solid #E5E7EB", border_radius="8px",
-                    ),
-                    rx.vstack(
-                        rx.text("Satisfaction & Churn",
-                                font_size="12px", font_weight="600", color="#374151"),
-                        rx.text("satisfaction_trend_slope · churn_risk_score · "
-                                "reactivation_probability · ltv_retention_index",
-                                font_size="11px", color="#6B7280"),
-                        padding="12px", background="#F9FAFB",
-                        border="1px solid #E5E7EB", border_radius="8px",
-                    ),
-                    rx.vstack(
-                        rx.text("Network & Device Quality",
-                                font_size="12px", font_weight="600", color="#374151"),
-                        rx.text("network_resilience_score · peak_hour_stress_ratio · "
-                                "bitrate_stability_index · device_loyalty_score",
-                                font_size="11px", color="#6B7280"),
-                        padding="12px", background="#F9FAFB",
-                        border="1px solid #E5E7EB", border_radius="8px",
-                    ),
-                    rx.vstack(
-                        rx.text("Content Affinity",
-                                font_size="12px", font_weight="600", color="#374151"),
-                        rx.text("genre_affinity_score · live_sports_engagement · "
-                                "franchise_loyalty_score · exclusive_content_pull",
-                                font_size="11px", color="#6B7280"),
-                        padding="12px", background="#F9FAFB",
-                        border="1px solid #E5E7EB", border_radius="8px",
-                    ),
-                    columns="2", spacing="3", width="100%",
-                ),
-                spacing="3", width="100%",
-            ),
-            **styles.CARD,
-            width="100%",
-        ),
-
         # ── Assessment results ─────────────────────────────────────────────────
         rx.cond(
             PipelineState.s4_assessment_rows.length() > 0,
@@ -181,9 +131,10 @@ def features_page() -> rx.Component:
                 rx.vstack(
                     rx.hstack(
                         rx.vstack(
-                            rx.text("Feature Store Assessment",
+                            rx.text("Feature Store Quality Assessment",
                                     font_size="14px", font_weight="600", color="#111827"),
-                            rx.text("12-check quality gate — all must PASS to proceed",
+                            rx.text("12-check gate — completeness, ranges, variance, "
+                                    "behavioural ordering, trajectory quality",
                                     font_size="12px", color="#6B7280"),
                             spacing="0", align="start",
                         ),
@@ -231,9 +182,11 @@ def features_page() -> rx.Component:
                                 spacing="2", align="center",
                             ),
                             rx.text(
-                                f"feature_store.csv contains {PipelineState.s4_total_features.to_string()} ML-ready "
-                                "features across " + PipelineState.s4_users.to_string() +
-                                " users · all 12 quality checks passed.",
+                                "feature_store.csv — " +
+                                PipelineState.s4_total_features.to_string() +
+                                " ML-ready features · " +
+                                PipelineState.s4_users.to_string() +
+                                " records · all 12 quality checks passed.",
                                 font_size="12px", color="rgba(255,255,255,0.85)",
                             ),
                             spacing="1", align="start",

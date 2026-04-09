@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 120" fill="#E8461E">
+  <!-- E -->
+  <rect x="10"  y="15"  width="60" height="16"/>
+  <rect x="10"  y="15"  width="16" height="90"/>
+  <rect x="10"  y="52"  width="50" height="16"/>
+  <rect x="10"  y="89"  width="60" height="16"/>
+  <!-- X -->
+  <polygon points="100,15 122,15 150,52 178,15 200,15 162,62 200,109 178,109 150,72 122,109 100,109 138,62"/>
+  <!-- L -->
+  <rect x="210" y="15"  width="16" height="90"/>
+  <rect x="210" y="89"  width="60" height="16"/>
+</svg>

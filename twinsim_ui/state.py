@@ -105,20 +105,26 @@ class PipelineState(rx.State):
     all_uploaded:       bool = False
 
     # ── Step 2: Ingestion ───────────────────────────────────────────────────────
-    s2_sessions_rows:    int        = 0
-    s2_sessions_cols:    int        = 0
     s2_profiles_rows:    int        = 0
     s2_profiles_cols:    int        = 0
+    s2_sessions_rows:    int        = 0
+    s2_sessions_cols:    int        = 0
     s2_catalogue_rows:   int        = 0
     s2_catalogue_cols:   int        = 0
-    s2_enriched_rows:    int        = 0
-    s2_enriched_cols:    int        = 0
+    # Feature presence (shown after file counts)
     s2_category_rows:    List[dict] = []
     s2_missing_features: List[str]  = []
     s2_coverage_pct:     float      = 0.0
+    s2_feature_checked:  bool       = False
     s2_gate_passed:      bool       = False
     s2_running:          bool       = False
     s2_error:            str        = ""
+    # Merge step (separate action)
+    s2_merge_running:    bool       = False
+    s2_merge_done:       bool       = False
+    s2_enriched_rows:    int        = 0
+    s2_enriched_cols:    int        = 0
+    s2_merge_error:      str        = ""
     s2_enrich_path:      str        = ""
 
     # ── Step 3: Health ──────────────────────────────────────────────────────────
@@ -197,24 +203,23 @@ class PipelineState(rx.State):
         return PipelineState.run_ingestion
 
     # ─────────────────────────────────────────────────────────────────────────
-    # STEP 2 — INGESTION + FEATURE PRESENCE CHECK
+    # STEP 2a — INGESTION: load files + feature presence check
     # ─────────────────────────────────────────────────────────────────────────
     async def run_ingestion(self):
-        # Capture all state vars as locals BEFORE the first yield
         sessions_path  = self.sessions_path
         profiles_path  = self.profiles_path
         catalogue_path = self.catalogue_path
-        enrich_out     = str(UPLOAD_DIR / "enriched_sessions.csv")
 
-        self.s2_running = True
-        self.s2_error   = ""
+        self.s2_running       = True
+        self.s2_feature_checked = False
+        self.s2_error         = ""
         self.step_status = ["complete", "running", "pending", "pending"]
         yield
 
         try:
             loop = asyncio.get_running_loop()
 
-            # Load the three CSVs (blocking I/O → thread pool)
+            # Load CSVs → thread pool
             sessions, profiles, catalogue = await loop.run_in_executor(
                 None,
                 lambda: (
@@ -223,44 +228,19 @@ class PipelineState(rx.State):
                     _load_csv(catalogue_path),
                 ),
             )
-            self.s2_sessions_rows  = int(sessions.shape[0])
-            self.s2_sessions_cols  = int(sessions.shape[1])
             self.s2_profiles_rows  = int(profiles.shape[0])
             self.s2_profiles_cols  = int(profiles.shape[1])
+            self.s2_sessions_rows  = int(sessions.shape[0])
+            self.s2_sessions_cols  = int(sessions.shape[1])
             self.s2_catalogue_rows = int(catalogue.shape[0])
             self.s2_catalogue_cols = int(catalogue.shape[1])
             yield
 
-            # Run enrich_sessions.py
-            enrich_cmd = [
-                PYTHON, str(PIPELINE_DIR / "enrich_sessions.py"),
-                "--sessions", sessions_path,
-                "--metadata", catalogue_path,
-                "--out",      enrich_out,
-            ]
-            res = await loop.run_in_executor(
-                None, lambda: _run_cmd(enrich_cmd, timeout=120)
-            )
-            if res.returncode != 0:
-                raise RuntimeError(
-                    f"enrich_sessions.py failed (exit {res.returncode}):\n"
-                    f"{res.stderr or res.stdout}"
-                )
-
-            enriched = await loop.run_in_executor(
-                None, lambda: _load_csv(enrich_out)
-            )
-            self.s2_enriched_rows = int(enriched.shape[0])
-            self.s2_enriched_cols = int(enriched.shape[1])
-            self.s2_enrich_path   = enrich_out
-            yield
-
-            # Feature presence check
+            # Feature presence check (no merge yet — enriched not available)
             all_cols = (
                 set(sessions.columns) |
                 set(profiles.columns)  |
-                set(catalogue.columns) |
-                set(enriched.columns)
+                set(catalogue.columns)
             )
             cat_rows:    list[dict] = []
             missing_all: list[str]  = []
@@ -268,18 +248,20 @@ class PipelineState(rx.State):
 
             for cat, feats in FEATURE_CATEGORIES.items():
                 n_exp  = len(feats)
-                n_pre  = sum(1 for f in feats if f in all_cols)
-                missed = [f for f in feats if f not in all_cols]
-                total_exp += n_exp
+                # episode_position only appears after merge — don't penalise yet
+                check_feats = [f for f in feats if f != "episode_position"]
+                n_pre  = sum(1 for f in check_feats if f in all_cols)
+                missed = [f for f in check_feats if f not in all_cols]
+                total_exp += len(check_feats)
                 total_pre += n_pre
                 missing_all.extend(missed)
-                pct    = round(n_pre / n_exp * 100) if n_exp else 100
+                pct    = round(n_pre / len(check_feats) * 100) if check_feats else 100
                 status = "green" if pct == 100 else ("amber" if pct >= 80 else "red")
                 cat_rows.append({
                     "category": cat,
-                    "expected": n_exp,
+                    "expected": len(check_feats),
                     "present":  n_pre,
-                    "missing":  n_exp - n_pre,
+                    "missing":  len(check_feats) - n_pre,
                     "pct":      pct,
                     "status":   status,
                 })
@@ -291,17 +273,62 @@ class PipelineState(rx.State):
             self.s2_missing_features = missing_all
             self.s2_coverage_pct     = coverage
             self.s2_gate_passed      = gate
+            self.s2_feature_checked  = True
             self.s2_running          = False
-            self.step_status = (
-                ["complete", "complete", "pending", "pending"] if gate
-                else ["complete", "error", "pending", "pending"]
-            )
+            self.step_status = ["complete", "running", "pending", "pending"]
             yield
 
         except Exception as exc:
             self.s2_error   = str(exc)
             self.s2_running = False
             self.step_status = ["complete", "error", "pending", "pending"]
+            yield
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # STEP 2b — MERGE: run enrich_sessions.py (explicit button click)
+    # ─────────────────────────────────────────────────────────────────────────
+    async def run_merge(self):
+        sessions_path  = self.sessions_path
+        catalogue_path = self.catalogue_path
+        enrich_out     = str(UPLOAD_DIR / "enriched_sessions.csv")
+
+        self.s2_merge_running = True
+        self.s2_merge_error   = ""
+        yield
+
+        try:
+            loop = asyncio.get_running_loop()
+
+            enrich_cmd = [
+                PYTHON, str(PIPELINE_DIR / "enrich_sessions.py"),
+                "--sessions", sessions_path,
+                "--metadata", catalogue_path,
+                "--out",      enrich_out,
+            ]
+            res = await loop.run_in_executor(
+                None, lambda: _run_cmd(enrich_cmd, timeout=120)
+            )
+            if res.returncode != 0:
+                raise RuntimeError(
+                    f"Session enrichment failed (exit {res.returncode}):\n"
+                    f"{res.stderr or res.stdout}"
+                )
+
+            enriched = await loop.run_in_executor(
+                None, lambda: _load_csv(enrich_out)
+            )
+            self.s2_enriched_rows = int(enriched.shape[0])
+            self.s2_enriched_cols = int(enriched.shape[1])
+            self.s2_enrich_path   = enrich_out
+            self.s2_merge_running = False
+            self.s2_merge_done    = True
+            self.step_status      = ["complete", "complete", "pending", "pending"]
+            yield
+
+        except Exception as exc:
+            self.s2_merge_error   = str(exc)
+            self.s2_merge_running = False
+            self.step_status      = ["complete", "error", "pending", "pending"]
             yield
 
     def proceed_to_health(self):
