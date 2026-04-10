@@ -7,6 +7,8 @@ Pipeline:
   Screen 2: Data Ingestion + Feature Presence Check
   Screen 3: Feature Health & Quality Check (239 checks)
   Screen 4: Feature Engineering (50 features · 12-check QA)
+  Screen 5: Clustering Engine (K-Means · audit gate)
+  Screen 6: Persona Intelligence (overview + detail)
 """
 import reflex as rx
 
@@ -17,6 +19,8 @@ from twinsim_ui.pages.upload import upload_page
 from twinsim_ui.pages.ingest import ingest_page
 from twinsim_ui.pages.health import health_page
 from twinsim_ui.pages.features import features_page
+from twinsim_ui.pages.clustering import clustering_page
+from twinsim_ui.pages.persona import persona_page
 
 
 def index() -> rx.Component:
@@ -38,7 +42,15 @@ def index() -> rx.Component:
                                 rx.cond(
                                     PipelineState.active_page == "features",
                                     features_page(),
-                                    upload_page(),
+                                    rx.cond(
+                                        PipelineState.active_page == "clustering",
+                                        clustering_page(),
+                                        rx.cond(
+                                            PipelineState.active_page == "persona",
+                                            persona_page(),
+                                            upload_page(),
+                                        ),
+                                    ),
                                 ),
                             ),
                         ),

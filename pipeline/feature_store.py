@@ -37,6 +37,11 @@ Trajectory features (require multi-session data):
   drop_pattern_score      FG03 — per-session drop flags (early/mid completion thresholds)
   support_friction_score  FG05 — sparse support ticket signal
 
+New in v4.1:
+  avg_watch_gap_norm      FS-12: adaptive p75 ceiling replaces fixed /30.
+                          Fixes variance collapse at 100k+ scale caused by
+                          reactivation gap inflation in avg_watch_gap_days.
+
 New in v4.0:
   ltv_score               FG05 — clip(ltv_to_date/500, 0, 1)
   account_health_score    FG05 — CRM composite [0,1] from profile
@@ -89,7 +94,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -97,15 +101,9 @@ import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
 
-# ── Windows UTF-8 fix ─────────────────────────────────────────────────────────
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-FEATURE_STORE_VERSION = "4.0.0"
+FEATURE_STORE_VERSION = "4.1.0"
 
 # ── Feature Registry ──────────────────────────────────────────────────────────
 
@@ -238,8 +236,12 @@ FEATURE_REGISTRY: List[Dict[str, Any]] = [
         "feature_id": "FG02_007", "group": "completion_retention",
         "name": "avg_watch_gap_norm", "dtype": "float",
         "description": (
-            "USER-LEVEL TRAJECTORY. clip(avg_watch_gap_days / 30, 0, 1) from user_profiles. "
-            "0 = daily viewer. 1 = month+ gap. Broadcast to all sessions."
+            "USER-LEVEL TRAJECTORY. clip(avg_watch_gap_days / p75_ceil, 0, 1) from user_profiles. "
+            "Ceiling = p75 of non-zero avg_watch_gap_days values (adaptive, not fixed). "
+            "FS-12: replaces fixed /30 ceiling which collapsed variance at 100k+ scale due to "
+            "reactivation gap inflation in avg_watch_gap_days. p75 ceiling preserves relative "
+            "ordering while maximising within-dataset variance for PCA separation. "
+            "0 = gap <= p75. 1 = gap at/above p75 of dataset. Broadcast to all sessions."
         ),
         "source_fields": ["user_profiles.avg_watch_gap_days"],
         "aggregation": "normalize_from_profile",
@@ -442,9 +444,11 @@ FEATURE_REGISTRY: List[Dict[str, Any]] = [
         "feature_id": "FG05_008", "group": "contextual_modifiers",
         "name": "ltv_score", "dtype": "float",
         "description": (
-            "clip(ltv_to_date / 500, 0, 1). ltv_to_date = monthly_price × tenure_months × "
+            "clip(ltv_to_date / p95(ltv_to_date), 0, 1). ltv_to_date = monthly_price × tenure_months × "
             "payment_reliability_discount. Enables high-value persona prioritization. "
-            "500 USD chosen as normalisation ceiling (~3yr standard subscriber). "
+            "FS-11: ceiling computed dynamically as p95 of non-null ltv_to_date values — "
+            "replaces hardcoded $500 which saturated long-tenure premium users (observed "
+            "max=$1,139 on 123k run). Fallback ceiling=$500 when <10 non-null LTV values. "
             "Broadcast from user_profiles to all sessions."
         ),
         "source_fields": ["user_profiles.ltv_to_date"], "aggregation": "normalize_from_profile",
@@ -524,10 +528,17 @@ FEATURE_REGISTRY: List[Dict[str, Any]] = [
         "feature_id": "FG04_006", "group": "content_affinity",
         "name": "fav_genre_confidence", "dtype": "float",
         "description": (
-            "Passthrough [0,1] from user_profiles. Fraction of sessions on winning genre. "
-            "1.0 = all sessions same genre (strong preference). ~0.20 = genre preference is noise. "
-            "Use as a confidence gate: fav_genre_confidence > 0.4 before treating genre affinity "
-            "as a reliable persona dimension. Broadcast to all sessions."
+            "Passthrough [0,1] from user_profiles. Computed as sessions_on_winning_genre / total_sessions. "
+            "FS-13 DESIGN NOTE: this feature measures SESSION CONCENTRATION on a single genre, "
+            "not preference signal reliability. With multiple genres and one comprising a significant "
+            "catalogue share, a user with no genuine preference can accumulate high concentration "
+            "by catalogue skew alone. The description 'preference signal quality modifier' is "
+            "inaccurate — it is a concentration measure. The correct fix is computing confidence "
+            "relative to catalogue base rates (sessions_on_genre / expected_by_catalogue_share), "
+            "but this requires catalogue exposure data not currently tracked per-session. "
+            "Current use: gate at > 0.4 before treating genre affinity as reliable. "
+            "Consumers (Layer 3, Layer 4) must be aware that high confidence can reflect "
+            "catalogue skew rather than genuine preference. Broadcast to all sessions."
         ),
         "source_fields": ["user_profiles.fav_genre_confidence"],
         "aggregation": "passthrough_from_profile",
@@ -564,6 +575,17 @@ GEO_TIER            = {"US":3,"UK":3,"AU":3,"CA":3,"DE":3,
                         "IN":1,"NG":1,"GH":1,"BR":1}
 PLAN_FRICTION       = {"basic":0.30,"standard":0.15,"premium":0.05}
 EPISODE_POSITION_SCORE = {
+    # FS-12 DESIGN NOTE: premiere and finale both encode to 1.00.
+    # These represent meaningfully different behavioral states:
+    #   premiere  → discovery/acquisition risk (user may not return after first episode)
+    #   finale    → renewal opportunity (user has completed the arc; churn/reactivation decision point)
+    # Encoding them identically makes differentiation impossible from this feature alone.
+    # Layer 4 cannot distinguish a premiere cluster from a finale cluster using
+    # episode_position_score. The encoding is intentional (both are high-engagement
+    # arc positions vs mid_season baseline), but the limitation must be documented
+    # before Layer 5 calibrates intervention response by episode arc position.
+    # Fix path: split into two separate binary features (is_premiere, is_finale) if
+    # Layer 5 requires arc-position-specific intervention routing.
     "premiere":        1.00,
     "penultimate_arc": 0.75,
     "mid_season":      0.50,
@@ -774,6 +796,8 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
 
     completion_variance_signal = np.abs(completion - 0.5) * 2.0
 
+    # Single recency weight computation — reused for recency_adjusted_completion (FG02)
+    # and recency_weight feature (FG05). Defined once to prevent silent formula drift.
     recency_w = np.exp(-window_day / 30.0)
     recency_adjusted_completion = np.clip(completion * recency_w, 0.0, 1.0)
 
@@ -785,7 +809,22 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     slope_map    = slope_series.to_dict()
     attention_decay_curve = np.array([slope_map.get(uid, 0.0) for uid in df["user_id"]])
 
-    avg_watch_gap_norm = np.clip(watch_gap_raw / 30.0, 0.0, 1.0)
+    # FS-12: avg_watch_gap_norm adaptive ceiling.
+    # Fixed /30 ceiling was calibrated on 20k/90d and compresses variance at 100k scale.
+    # Root cause: avg_watch_gap_days includes reactivation gaps (30–90d) which inflate
+    # per-user means and collapse inter-segment separation in normalised space.
+    # Fix: compute p75 of non-zero gaps as the normalisation ceiling. p75 is robust to
+    # the re_engager/reactivation tail while preserving binge_heavy vs casual_dip spread.
+    # Fallback to 30.0 when fewer than 10 non-zero values (e.g. very small datasets).
+    _gap_nonzero = watch_gap_raw[watch_gap_raw > 0.1]
+    if len(_gap_nonzero) >= 10:
+        _gap_ceil = float(np.percentile(_gap_nonzero, 75))
+        _gap_ceil = max(_gap_ceil, 1.0)   # floor: never divide by less than 1
+    else:
+        _gap_ceil = 30.0                  # fallback for tiny datasets
+    avg_watch_gap_norm = np.clip(watch_gap_raw / _gap_ceil, 0.0, 1.0)
+    print(f"[INFO] avg_watch_gap_norm: p75_ceiling={_gap_ceil:.2f}d  "
+          f"mean_norm={avg_watch_gap_norm.mean():.4f}  var={avg_watch_gap_norm.var():.4f}")
 
     # ── FG-03: Churn & Friction ───────────────────────────────────────────────
 
@@ -796,6 +835,12 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
         0.0, 1.0
     )
 
+    # FS-07: churn_velocity collapses to 0 for ALL session_number=1 rows.
+    # days_since_last_session is NULL for session_number=1 → _safe() → 0.0,
+    # so churn_velocity = 0.0 * (1 - completion) = 0.0 regardless of completion.
+    # Layer 4/5 must not treat churn_velocity as informative for first-session rows.
+    # This is structural and dataset-size independent — 100% of session_number=1
+    # rows will always have churn_velocity=0.0.
     churn_velocity = np.clip(days_since_last_normalised * (1.0 - completion), 0.0, 1.0)
 
     churn_flag_encoded = churn_flag.astype(int)
@@ -822,7 +867,14 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     else:
         satisfaction_trend = np.zeros(n)
 
-    # v4.0: uses per-session binary flags, not content-level aggregate rates
+    # v4.0: uses per-session binary flags, not content-level aggregate rates.
+    # FS-08: drop_pattern_score is a ninth transformation of completion_pct.
+    # early_drop_flag = (completion < 0.25), mid_drop_flag = (0.25 ≤ completion < 0.75).
+    # Both flags are threshold-derived from completion_pct, making drop_pattern_score
+    # a deterministic function of completion. It is correctly excluded from
+    # CLUSTERING_FEATURES (in SPARSE_CLUSTERING_AUXILIARY). Do NOT restore it to
+    # the clustering set without a collinearity review — it will re-introduce a
+    # completion derivative that Check 13 will catch and block.
     drop_pattern_score = np.clip(early_drop_f*0.4 + mid_drop_f*0.6, 0.0, 1.0)
 
     # ── FG-04: Content Affinity ───────────────────────────────────────────────
@@ -843,8 +895,10 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     event_type_weight = np.array([EVENT_TYPE_WEIGHT.get(et, 0.60) for et in event_type])
 
     # FG04_006 — fav_genre_confidence from profile (passthrough, broadcast)
+    # NULL → 0.0 (null-as-signal: profile-unmatched users fail the confidence gate > 0.4,
+    # preventing genre affinity from being treated as reliable for unknown users)
     fav_genre_confidence = np.clip(
-        np.where(np.isnan(fav_conf_raw), 0.5, fav_conf_raw), 0.0, 1.0
+        np.where(np.isnan(fav_conf_raw), 0.0, fav_conf_raw), 0.0, 1.0
     )
 
     # FG04_007 — episode_position_score
@@ -855,7 +909,7 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── FG-05: Contextual Modifiers ───────────────────────────────────────────
 
-    recency_weight          = np.exp(-window_day / 30.0)
+    recency_weight          = recency_w  # unified with FG02 recency_w — see FS-09
     subscription_tier_score = np.array([PLAN_TIER_SCORE.get(p, 0.30) for p in plan_type])
     tenure_weight           = np.clip(tenure_mo / 24.0, 0.0, 1.0)
     # network_type now from session_events (variable per session)
@@ -877,14 +931,25 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
         has_tickets * (ticket_norm*0.6 + res_norm*0.4), 0.0, 1.0
     )
 
-    # FG05_008 — ltv_score (normalise to 500 USD ceiling)
+    # FG05_008 — ltv_score (FS-11: dynamic p95 ceiling replaces hardcoded $500)
+    # The fixed $500 ceiling saturated long-tenure premium users: observed max=1139.40
+    # on the 123k run, avg=333.11. p95 computed on non-null values only; fallback to
+    # $500 if fewer than 10 non-null LTV values exist (cold-start / focused mode).
+    ltv_non_null = ltv_raw[~np.isnan(ltv_raw)]
+    if len(ltv_non_null) >= 10:
+        ltv_ceiling = float(np.percentile(ltv_non_null, 95))
+        if ltv_ceiling < 1.0:            # degenerate — all users have near-zero LTV
+            ltv_ceiling = 500.0
+    else:
+        ltv_ceiling = 500.0              # fallback for small/focused runs
     ltv_score = np.clip(
-        np.where(np.isnan(ltv_raw), 0.0, ltv_raw / 500.0), 0.0, 1.0
+        np.where(np.isnan(ltv_raw), 0.0, ltv_raw / ltv_ceiling), 0.0, 1.0
     )
 
     # FG05_009 — account_health_score passthrough
+    # NULL → 0.0 (null-as-signal: profile-unmatched users are unknown health, not medium health)
     account_health_score = np.clip(
-        np.where(np.isnan(acct_health_raw), 0.5, acct_health_raw), 0.0, 1.0
+        np.where(np.isnan(acct_health_raw), 0.0, acct_health_raw), 0.0, 1.0
     )
 
     # FG05_010 — campaign_receptivity (NULL → 0.0)
@@ -982,8 +1047,14 @@ def compute_baseline(feature_df: pd.DataFrame) -> dict:
     """
     90-day per-segment per-content baseline statistics.
     Consumed by Layer 7 normalization and Layer 4 twin prior calibration.
+
+    Minimum sample guard: cells with n < MIN_BASELINE_N are skipped.
+    p90 and max from n=1 cells are degenerate — they equal the single value
+    and corrupt Layer 7 normalization if written. Threshold: 10 rows.
     """
     print("[INFO] Computing baseline statistics...")
+
+    MIN_BASELINE_N = 10  # FS-10: minimum rows before writing any baseline cell
 
     BASELINE_FEATURES = [
         "completion_rate_smooth", "churn_risk_score", "churn_velocity",
@@ -994,19 +1065,21 @@ def compute_baseline(feature_df: pd.DataFrame) -> dict:
     ]
 
     baseline: dict = {}
+    skipped_cells = 0
     for seg in feature_df["segment_id"].unique():
         baseline[seg] = {}
         for content in feature_df["content_id"].unique():
             mask   = (feature_df["segment_id"]==seg) & (feature_df["content_id"]==content)
             subset = feature_df[mask]
-            if len(subset) == 0:
+            if len(subset) < MIN_BASELINE_N:
+                skipped_cells += 1
                 continue
             stats: dict = {}
             for feat in BASELINE_FEATURES:
                 if feat not in subset.columns:
                     continue
                 s = pd.to_numeric(subset[feat], errors="coerce").dropna()
-                if len(s) == 0:
+                if len(s) < MIN_BASELINE_N:
                     continue
                 stats[feat] = {
                     "mean":   round(float(s.mean()),   4),
@@ -1019,7 +1092,8 @@ def compute_baseline(feature_df: pd.DataFrame) -> dict:
                 baseline[seg][content] = stats
 
     n_cells = sum(len(v) for v in baseline.values())
-    print(f"[INFO] Baseline: {len(baseline)} segments × {n_cells} segment-content cells")
+    print(f"[INFO] Baseline: {len(baseline)} segments × {n_cells} segment-content cells "
+          f"({skipped_cells} skipped — n < {MIN_BASELINE_N})")
     return baseline
 
 
@@ -1057,7 +1131,7 @@ def write_report(fdf: pd.DataFrame, path: str) -> None:
     numeric_cols = [c for c in FEATURE_NAMES if c in fdf.columns]
     lines = [
         "=" * 80,
-        "TWINSIM — BEHAVIORAL FEATURE STORE REPORT  v4.0",
+        f"TWINSIM — BEHAVIORAL FEATURE STORE REPORT  v{FEATURE_STORE_VERSION}",
         "=" * 80,
         f"Version         : {FEATURE_STORE_VERSION}",
         f"Records         : {len(fdf):,}",
@@ -1138,7 +1212,7 @@ def write_baseline(baseline: dict, path: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description="TwinSim Behavioral Feature Store v3.0 — Layer 2",
+        description="TwinSim Behavioral Feature Store v4.0 — Layer 2",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--events",   default="session_events.csv",
@@ -1159,11 +1233,11 @@ def main() -> None:
 
     # Load
     print(f"[INFO] Loading {args.events}...")
-    sess = pd.read_csv(args.events, encoding="utf-8")
+    sess = pd.read_csv(args.events)
     print(f"[INFO] session_events: {len(sess):,} rows × {len(sess.columns)} cols")
 
     print(f"[INFO] Loading {args.profiles}...")
-    prof = pd.read_csv(args.profiles, encoding="utf-8")
+    prof = pd.read_csv(args.profiles)
     print(f"[INFO] user_profiles : {len(prof):,} rows × {len(prof.columns)} cols")
 
     # Join
@@ -1185,13 +1259,24 @@ def main() -> None:
 
     # Compute
     fdf = compute_features(df)
-    fdf.to_csv(args.out, index=False, encoding="utf-8")
+    fdf.to_csv(args.out, index=False)
     print(f"[DONE] Feature store → {args.out}")
 
     write_registry(args.registry)
     write_report(fdf, args.report)
 
     if args.generate_baseline:
+        # XL-03: baseline mode is intended for 90-day data. Running against <60 days
+        # produces degenerate p90/max statistics that corrupt Layer 7 normalization.
+        if "window_day" in fdf.columns:
+            max_day = int(pd.to_numeric(fdf["window_day"], errors="coerce").max())
+            if max_day < 60:
+                print(
+                    f"[ERROR] --generate_baseline requires at least 60 days of data. "
+                    f"Max window_day in this dataset: {max_day}. "
+                    f"Run generate_signals.py with --window_days 90 before computing baseline."
+                )
+                raise SystemExit(1)
         baseline = compute_baseline(fdf)
         write_baseline(baseline, args.baseline_out)
 

@@ -114,10 +114,12 @@ def sidebar() -> rx.Component:
                 font_size="9px", font_weight="700", color="#4b5563",
                 letter_spacing="0.12em", padding="12px 12px 6px",
             ),
-            _nav_item("01  Upload Dataset",            "upload",   0),
-            _nav_item("02  Ingestion & Feature Check", "ingest",   1),
-            _nav_item("03  Health & Quality Check",    "health",   2),
-            _nav_item("04  Feature Engineering",       "features", 3),
+            _nav_item("01  Upload Dataset",            "upload",      0),
+            _nav_item("02  Ingestion & Feature Check", "ingest",      1),
+            _nav_item("03  Health & Quality Check",    "health",      2),
+            _nav_item("04  Feature Engineering",       "features",    3),
+            _nav_item("05  Clustering",                "clustering",  4),
+            _nav_item("06  Persona Intelligence",      "persona",     5),
             spacing="0", width="100%", align="start",
         ),
 
@@ -129,24 +131,42 @@ def sidebar() -> rx.Component:
                 rx.box(
                     width="6px", height="6px", border_radius="50%",
                     background=rx.cond(
-                        PipelineState.step_status[3] == "complete",
-                        styles.GREEN, "#4b5563",
+                        PipelineState.step_status[5] == "complete",
+                        styles.GREEN,
+                        rx.cond(
+                            PipelineState.step_status[4] == "complete",
+                            styles.BLUE,
+                            "#4b5563",
+                        ),
                     ),
                 ),
                 rx.text(
                     rx.cond(
-                        PipelineState.step_status[3] == "complete",
-                        "Pipeline complete ✓",
+                        PipelineState.step_status[5] == "complete",
+                        "Personas ready ✓",
                         rx.cond(
-                            PipelineState.all_uploaded,
-                            "Files uploaded",
-                            "Awaiting input",
+                            PipelineState.step_status[4] == "complete",
+                            "Clustering done",
+                            rx.cond(
+                                PipelineState.step_status[3] == "complete",
+                                "Features ready",
+                                rx.cond(
+                                    PipelineState.all_uploaded,
+                                    "Files uploaded",
+                                    "Awaiting input",
+                                ),
+                            ),
                         ),
                     ),
                     font_size="11px",
                     color=rx.cond(
-                        PipelineState.step_status[3] == "complete",
-                        styles.GREEN, "#6b7280",
+                        PipelineState.step_status[5] == "complete",
+                        styles.GREEN,
+                        rx.cond(
+                            PipelineState.step_status[4] == "complete",
+                            styles.BLUE,
+                            "#6b7280",
+                        ),
                     ),
                     font_weight="500",
                 ),

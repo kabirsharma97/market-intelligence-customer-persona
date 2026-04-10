@@ -4,8 +4,8 @@ from twinsim_ui.state import PipelineState
 from twinsim_ui import styles
 
 
-# ── Helper: "Total Records (5,000)" style tile ────────────────────────────────
-def _file_tile(source: str, rows, cols, color: str) -> rx.Component:
+# ── Helper: file summary tile ─────────────────────────────────────────────────
+def _file_tile(source: str, rows_fmt, cols, color: str) -> rx.Component:
     return rx.vstack(
         rx.hstack(
             rx.box(width="10px", height="10px", border_radius="50%",
@@ -14,13 +14,11 @@ def _file_tile(source: str, rows, cols, color: str) -> rx.Component:
             spacing="2", align="center",
         ),
         rx.text(
-            "Total Records (" + rows.to_string() + ")",
-            font_size="20px", font_weight="700", color="#111827",
+            rows_fmt,
+            font_size="26px", font_weight="700", color="#111827",
         ),
-        rx.text(
-            cols.to_string() + " columns",
-            font_size="11px", color="#9CA3AF",
-        ),
+        rx.text("records · " + cols.to_string() + " columns",
+                font_size="11px", color="#9CA3AF"),
         spacing="1", align="start",
         padding="14px 16px",
         background="white",
@@ -42,32 +40,71 @@ def _status_badge(status: str) -> rx.Component:
     )
 
 
+
+
 def _category_row(row: dict) -> rx.Component:
-    return rx.hstack(
-        rx.text(row["category"], font_size="12px", color="#374151",
-                font_weight="500", flex="2"),
-        rx.text(
-            row["present"].to_string() + " / " + row["expected"].to_string(),
-            font_size="12px", color="#6B7280", flex="1", text_align="center",
-        ),
-        rx.box(
+    is_expanded = PipelineState.s2_expanded_categories.contains(row["category"])
+    return rx.vstack(
+        # ── Main row (always visible) ──────────────────────────────────────
+        rx.hstack(
+            # Chevron toggle
             rx.box(
-                width=row["pct"].to_string() + "%",
-                height="6px",
-                background=rx.cond(
-                    row["status"] == "green", styles.GREEN,
-                    rx.cond(row["status"] == "amber", styles.AMBER, styles.RED),
+                rx.text(
+                    rx.cond(is_expanded, "▾", "▸"),
+                    font_size="12px",
+                    color=rx.cond(is_expanded, styles.ACCENT, "#9CA3AF"),
                 ),
-                border_radius="3px",
-                transition="width 0.5s ease",
+                cursor="pointer",
+                on_click=PipelineState.toggle_category(row["category"]),
+                width="20px", flex_shrink="0",
             ),
-            width="120px", height="6px",
-            background="#E5E7EB", border_radius="3px", overflow="hidden",
-            flex="2",
+            rx.text(row["category"], font_size="12px", color="#374151",
+                    font_weight="500", flex="2", cursor="pointer",
+                    on_click=PipelineState.toggle_category(row["category"])),
+            rx.text(
+                row["present"].to_string() + " / " + row["expected"].to_string(),
+                font_size="12px", color="#6B7280", flex="1", text_align="center",
+            ),
+            rx.box(
+                rx.box(
+                    width=row["pct"].to_string() + "%",
+                    height="6px",
+                    background=rx.cond(
+                        row["status"] == "green", styles.GREEN,
+                        rx.cond(row["status"] == "amber", styles.AMBER, styles.RED),
+                    ),
+                    border_radius="3px",
+                    transition="width 0.5s ease",
+                ),
+                width="120px", height="6px",
+                background="#E5E7EB", border_radius="3px", overflow="hidden",
+                flex="2",
+            ),
+            _status_badge(row["status"]),
+            spacing="3", align="center", width="100%",
+            padding="8px 0",
         ),
-        _status_badge(row["status"]),
-        spacing="3", align="center", width="100%",
-        padding="8px 0",
+        # ── Expanded: feature list ─────────────────────────────────────────
+        rx.cond(
+            is_expanded,
+            rx.box(
+                rx.text(
+                    row["features_str"],
+                    font_size="11px",
+                    color="#6B7280",
+                    font_family="monospace",
+                    line_height="1.8",
+                    word_break="break-word",
+                ),
+                padding="8px 12px 10px 28px",
+                background="#F9FAFB",
+                border_radius="8px",
+                border="1px solid #E5E7EB",
+                width="100%",
+            ),
+            rx.box(),
+        ),
+        spacing="0", width="100%",
         border_bottom="1px solid #F3F4F6",
     )
 
@@ -120,11 +157,11 @@ def ingest_page() -> rx.Component:
                     rx.text("Records and columns loaded from each uploaded file",
                             font_size="11px", color="#6B7280"),
                     rx.grid(
-                        _file_tile("User Profiles",    PipelineState.s2_profiles_rows,
+                        _file_tile("User Profiles",    PipelineState.s2_profiles_rows_fmt,
                                    PipelineState.s2_profiles_cols,  "#22C55E"),
-                        _file_tile("Session Events",   PipelineState.s2_sessions_rows,
+                        _file_tile("Session Events",   PipelineState.s2_sessions_rows_fmt,
                                    PipelineState.s2_sessions_cols,  "#3B82F6"),
-                        _file_tile("Content Catalogue",PipelineState.s2_catalogue_rows,
+                        _file_tile("Content Catalogue",PipelineState.s2_catalogue_rows_fmt,
                                    PipelineState.s2_catalogue_cols, styles.ACCENT),
                         columns="3", spacing="3", width="100%",
                     ),
@@ -237,8 +274,9 @@ def ingest_page() -> rx.Component:
                             rx.text("Step 3 — Session Data Preparation",
                                     font_size="13px", font_weight="600", color="#111827"),
                             rx.text(
-                                "Merges session_events with content_catalogue on content_id · "
-                                "computes episode_position · produces enriched session dataset",
+                                "Combines viewing activity with content details, "
+                                "figures out where each episode sits in a series, "
+                                "and produces a single enriched dataset ready for analysis",
                                 font_size="11px", color="#6B7280",
                             ),
                             spacing="0", align="start",
@@ -309,11 +347,11 @@ def ingest_page() -> rx.Component:
                                 rx.text("Enriched session dataset ready",
                                         font_size="12px", font_weight="600", color="#374151"),
                                 rx.hstack(
-                                    rx.text("Total Records (" +
-                                            PipelineState.s2_enriched_rows.to_string() + ")",
+                                    rx.text(PipelineState.s2_enriched_rows_fmt,
                                             font_size="13px", font_weight="700",
                                             color=styles.GREEN),
-                                    rx.text("·", color="#9CA3AF"),
+                                    rx.text("records ·", color="#9CA3AF",
+                                            font_size="13px"),
                                     rx.text(PipelineState.s2_enriched_cols.to_string() +
                                             " columns",
                                             font_size="13px", color="#6B7280"),

@@ -1,11 +1,16 @@
 """
-TwinSim — Feature Store Assessment  v4.1.0
+TwinSim — Feature Store Assessment  v4.4.0
 ============================================
 Validates feature_store.csv before passing to clustering_engine.py.
 
 41 features total across 5 feature groups.
 12 checks covering completeness, nulls, ranges, variance, behavioral
 ordering, trajectory quality, sparse field handling, and new v4.0 features.
+
+Changes from v4.3 (v4.4.0):
+  Check 13 note updated: FS-12 adaptive ceiling in feature_store.py v4.1.0
+  means avg_watch_gap_norm var should exceed 0.05 on 100k+ datasets.
+  ASSESSMENT_VERSION constant added.
 
 Changes from v4.0 (v4.1.0):
   CLUSTERING_FEATURES reduced from 33 → 27: six high-sparsity features
@@ -27,33 +32,35 @@ Exit codes:
 """
 
 import argparse
-import sys
 import pandas as pd
 import numpy as np
 
-# ── Windows UTF-8 fix ─────────────────────────────────────────────────────────
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+ASSESSMENT_VERSION: str = "4.4.0"
+
+# ── FSA-05: Named constants for Check 8 thresholds ───────────────────────────
+# tenure_weight encodes tenure_months / 24. A 12-month subscriber maps to 12/24 = 0.5.
+# The high_value_churn_flag requires tenure >= 12 months, so the threshold is 12/24.
+TENURE_12M_THRESHOLD: float = 12 / 24          # = 0.5 (12-month tenure floor)
+# subscription_tier_score = 1.0 encodes the premium plan tier exclusively.
+# Values below 1.0 indicate standard or basic — not premium.
+PREMIUM_TIER_THRESHOLD: float = 1.0 - 1e-9     # = 0.9999… (exclusive premium gate)
 
 # ── Feature sets ──────────────────────────────────────────────────────────────
 
 CLUSTERING_FEATURES = [
-    # FG-01: Session Engagement (4) — binge_index_score moved to auxiliary (64.6% zeros)
+    # FG-01: Session Engagement (3)
+    # attention_quality_score removed: r=0.97 with completion_rate_smooth on fresh data.
+    # completion / (1 + buffer_rate) ≈ completion when buffer_rate is low (typical).
+    # buffer modulation is captured independently by friction_index. Moved to auxiliary.
     "session_depth_score",
     "session_intensity_score",
     "binge_signal",
-    "attention_quality_score",
-    # FG-02: Completion & Retention (7)
+    # FG-02: Completion & Retention (4)
     "completion_rate_smooth",
-    "completion_tier",
-    "completion_variance_signal",
-    "recency_adjusted_completion",
     "days_since_last_normalised",
     "attention_decay_curve",
     "avg_watch_gap_norm",
-    # FG-03: Churn & Friction (3) — reactivation_signal, satisfaction_score, drop_pattern_score moved to auxiliary
+    # FG-03: Churn & Friction (3)
     "churn_risk_score",
     "churn_velocity",
     "friction_index",
@@ -63,9 +70,8 @@ CLUSTERING_FEATURES = [
     "event_type_weight",
     "fav_genre_confidence",
     "episode_position_score",
-    # FG-05: Contextual Modifiers (8) — support_friction_score, campaign_receptivity moved to auxiliary
+    # FG-05: Contextual Modifiers (7)
     "recency_weight",
-    "subscription_tier_score",
     "tenure_weight",
     "network_quality_score",
     "ltv_score",
@@ -79,13 +85,22 @@ CLUSTERING_FEATURES = [
 # Restoration trigger for binge_index_score and reactivation_signal:
 #   avg_watch_gap_norm var > 0.05 AND binge_index_score zeros < 30%
 #   (confirms P3-A+B session_events are flowing through the pipeline).
+# subscription_tier_score moved here (FS-06): collinear with tenure_weight through
+#   ltv_score construction (ltv = price × tenure × discount; price = f(plan_type)).
+#   tenure_weight is the primary subscription-value dimension in clustering.
 SPARSE_CLUSTERING_AUXILIARY = [
-    "binge_index_score",       # 64.6% zeros — restore post P3-A+B rerun
-    "reactivation_signal",     # 92.8% zeros
-    "satisfaction_score",      # 71.5% zeros
-    "support_friction_score",  # 81.8% zeros
-    "drop_pattern_score",      # 59.6% zeros
-    "campaign_receptivity",    # 41.3% zeros
+    "binge_index_score",        # 64.6% zeros — restore post P3-A+B rerun
+    "reactivation_signal",      # 92.8% zeros
+    "satisfaction_score",       # 71.5% zeros
+    "support_friction_score",   # 81.8% zeros
+    "drop_pattern_score",       # 59.6% zeros
+    "campaign_receptivity",     # 41.3% zeros
+    "subscription_tier_score",  # FS-06: collinear with tenure_weight through ltv_score
+    "completion_tier",          # FS-05: ordinal binning of completion_rate_smooth
+    "completion_variance_signal",  # FS-05: deterministic transform of completion_pct
+    "recency_adjusted_completion", # FS-04: exact product of completion_rate_smooth × recency_weight
+    "attention_quality_score",  # empirical r=0.97 with completion_rate_smooth on fresh data;
+                                # buffer modulation independently captured by friction_index
 ]
 
 AUXILIARY_FEATURES = [
@@ -163,7 +178,7 @@ COMPLETION_ORDER = [
 
 
 def run_assessment(input_path: str) -> bool:
-    df = pd.read_csv(input_path, encoding="utf-8")
+    df = pd.read_csv(input_path)
     n  = len(df)
     print(f"Loaded : {n:,} rows × {len(df.columns)} columns")
     print(f"File   : {input_path}")
@@ -217,6 +232,58 @@ def run_assessment(input_path: str) -> bool:
         ("FAIL", f"Zero-variance (breaks HDBSCAN): {zero_var}")
     )
 
+    # ── Check 13: Pairwise collinearity in clustering features ────────────────
+    # FSA-03: No collinearity gate existed anywhere in the pipeline. FS-05 identified
+    # 6-8 structurally collinear features with r up to 0.995. PCA compresses these into
+    # a dominant first component; HDBSCAN then produces completion-quantile buckets, not
+    # behavioral personas. This gate must block the pipeline before clustering runs.
+    # Pearson is used for continuous features only. Binary/ordinal features excluded.
+    COLLINEARITY_BINARY = {
+        "completion_tier", "churn_flag_encoded",
+        "rewatch_engagement_flag", "weekend_viewing_flag", "high_value_churn_flag",
+    }
+    continuous_clustering = [
+        f for f in CLUSTERING_FEATURES
+        if f in df.columns and f not in COLLINEARITY_BINARY
+    ]
+    if len(continuous_clustering) >= 2:
+        col_sample = df[continuous_clustering].apply(pd.to_numeric, errors="coerce").dropna()
+        if len(col_sample) > 10_000:
+            col_sample = col_sample.sample(10_000, random_state=42)
+        corr_matrix = col_sample.corr(method="pearson")
+        hard_fails, warns, high_pairs = [], [], []
+        for i in range(len(continuous_clustering)):
+            for j in range(i + 1, len(continuous_clustering)):
+                f1, f2 = continuous_clustering[i], continuous_clustering[j]
+                r = float(corr_matrix.loc[f1, f2])  # cast to Python float for clean comparison
+                if abs(r) > 0.95:
+                    hard_fails.append(f"{f1} ↔ {f2}: r={r:.6f}")
+                elif abs(r) > 0.80:
+                    warns.append(f"{f1} ↔ {f2}: r={r:.6f}")
+                elif abs(r) > 0.50:
+                    high_pairs.append(f"{f1} ↔ {f2}: r={r:.4f}")
+        if hard_fails:
+            results["13_collinearity_check"] = (
+                "FAIL",
+                f"Algebraic redundancy — {len(hard_fails)} pairs |r|>0.95: "
+                f"{hard_fails}. Remove redundant features before clustering.",
+            )
+        elif warns:
+            results["13_collinearity_check"] = (
+                "WARN",
+                f"High collinearity — {len(warns)} pairs 0.80<|r|<=0.95: {warns}. "
+                f"Review before Layer 3. Notable pairs (|r|>0.50): {high_pairs}",
+            )
+        else:
+            results["13_collinearity_check"] = (
+                "PASS",
+                f"No pairs |r|>0.80 across {len(continuous_clustering)} continuous "
+                f"clustering features (n={len(col_sample):,}). "
+                f"Notable pairs (|r|>0.50): {high_pairs if high_pairs else 'none'}",
+            )
+    else:
+        results["13_collinearity_check"] = ("SKIP", "Fewer than 2 continuous clustering features present")
+
     # ── Check 5: Churn risk vs churn_flag_encoded ──────────────────────────────
     if "churn_risk_score" in df.columns and "churn_flag_encoded" in df.columns:
         churned     = pd.to_numeric(df[df["churn_flag_encoded"]==1]["churn_risk_score"], errors="coerce")
@@ -235,6 +302,21 @@ def run_assessment(input_path: str) -> bool:
         results["05_churn_risk_consistency"] = ("SKIP", "Required columns absent")
 
     # ── Check 6: Segment × completion ordering ─────────────────────────────────
+    # SYNTHETIC VALIDATION SCAFFOLDING ONLY.
+    # This check validates that completion_rate_smooth is ordered correctly
+    # across the known simulation segment groups (quick_churn < casual_dip <
+    # re_engager < binge_heavy < completion_obsessed). It queries the feature
+    # store by segment_id — a field generated by generate_signals.py as a
+    # simulation control variable that does NOT exist in real client data.
+    #
+    # On real client data:
+    #   - If segment_id is absent → this check emits SKIP (correct behaviour).
+    #   - SKIP is not a failure. It means production mode is active.
+    #
+    # FSA-02: When segment_id IS present (synthetic run), ordering violation
+    # is FAIL — a violation means the simulation data is behaving incorrectly
+    # and must block clustering. The production-equivalent check is clustering
+    # audit Check 5 (behavioral label ordering on discovered clusters).
     if "segment_id" in df.columns and "completion_rate_smooth" in df.columns:
         seg_means = {
             seg: float(df[df["segment_id"]==seg]["completion_rate_smooth"].astype(float).mean())
@@ -250,12 +332,17 @@ def run_assessment(input_path: str) -> bool:
         ]
         summary = ", ".join(f"{s}={seg_means[s]:.3f}" for s in present_segs)
         results["06_segment_completion_ordering"] = (
-            ("PASS", f"Ordering correct: {summary}")
+            ("PASS", f"[SYNTHETIC ONLY] Ordering correct: {summary}")
             if not violations else
-            ("WARN", f"Violations: {violations}. Full: {summary}")
+            ("FAIL", f"[SYNTHETIC ONLY] Ordering violation — blocks clustering: {violations}. Full: {summary}")
         )
     else:
-        results["06_segment_completion_ordering"] = ("SKIP", "Required columns absent")
+        results["06_segment_completion_ordering"] = (
+            "SKIP",
+            ("[SYNTHETIC ONLY] segment_id absent — production mode. "
+             "This is correct for real client data. "
+             "Production ordering is validated by clustering_audit.py Check 5 ")
+        )
 
     # ── Check 7: Recency weight > 0 ───────────────────────────────────────────
     if "recency_weight" in df.columns:
@@ -274,8 +361,8 @@ def run_assessment(input_path: str) -> bool:
         hv = df[df["high_value_churn_flag"]==1]
         if len(hv) > 0:
             not_churned = int((hv["churn_flag_encoded"]==0).sum())
-            low_tenure  = int((pd.to_numeric(hv["tenure_weight"],errors="coerce") < 0.49).sum())
-            not_premium = int((pd.to_numeric(hv["subscription_tier_score"],errors="coerce") < 0.99).sum())
+            low_tenure  = int((pd.to_numeric(hv["tenure_weight"],errors="coerce") < TENURE_12M_THRESHOLD).sum())
+            not_premium = int((pd.to_numeric(hv["subscription_tier_score"],errors="coerce") < PREMIUM_TIER_THRESHOLD).sum())
             violations  = []
             if not_churned: violations.append(f"{not_churned} not churned")
             if low_tenure:  violations.append(f"{low_tenure} tenure_weight<0.5")
@@ -411,16 +498,64 @@ def run_assessment(input_path: str) -> bool:
     else:
         results["12_superfan_ltv_correlation"] = ("SKIP", "Required columns absent")
 
+    # ── Check 13: HDBSCAN restoration trigger evaluation (FSA-04) ─────────────
+    # CAL-001 closed: HDBSCAN is not the current default. This check evaluates
+    # the restoration criteria at runtime and prompts the operator if both
+    # conditions are met, suggesting a deliberate HDBSCAN attempt.
+    # Criteria: avg_watch_gap_norm var > 0.05 AND binge_index_score zeros < 30%.
+    # FS-12: feature_store.py v4.1.0 adaptive p75 ceiling should bring
+    # avg_watch_gap_norm var above 0.05 on 100k+ datasets. If this check
+    # still fails after FS-12, re-run feature_store.py v4.1.0 first.
+    trigger_parts = []
+    trigger_met   = True
+    if "avg_watch_gap_norm" in df.columns:
+        gap_var = float(pd.to_numeric(df["avg_watch_gap_norm"], errors="coerce").var())
+        if gap_var > 0.05:
+            trigger_parts.append(f"avg_watch_gap_norm var={gap_var:.4f} > 0.05 ✓")
+        else:
+            trigger_parts.append(f"avg_watch_gap_norm var={gap_var:.4f} ≤ 0.05 ✗")
+            trigger_met = False
+    else:
+        trigger_parts.append("avg_watch_gap_norm absent ✗")
+        trigger_met = False
+    if "binge_index_score" in df.columns:
+        binge_zeros = float((pd.to_numeric(df["binge_index_score"], errors="coerce") == 0).mean() * 100)
+        if binge_zeros < 30.0:
+            trigger_parts.append(f"binge_index_score zeros={binge_zeros:.1f}% < 30% ✓")
+        else:
+            trigger_parts.append(f"binge_index_score zeros={binge_zeros:.1f}% ≥ 30% ✗")
+            trigger_met = False
+    else:
+        trigger_parts.append("binge_index_score absent ✗")
+        trigger_met = False
+    trigger_detail = "; ".join(trigger_parts)
+    if trigger_met:
+        results["13_hdbscan_restoration_trigger"] = (
+            "WARN",
+            (f"FSA-04: HDBSCAN restoration criteria MET — {trigger_detail}. "
+             f"Consider running: python clustering_engine.py --algorithm hdbscan "
+             f"and checking logged silhouette. Accept if sil ≥ 0.05 and noise < 30%.")
+        )
+    else:
+        results["13_hdbscan_restoration_trigger"] = (
+            "PASS",
+            f"FSA-04: HDBSCAN restoration criteria not met — {trigger_detail}. K-Means default correct."
+        )
+
     # ── Print results ──────────────────────────────────────────────────────────
     print()
     print("=" * 76)
-    print("TWINSIM — FEATURE STORE ASSESSMENT  v4.1.0")
+    print("TWINSIM — FEATURE STORE ASSESSMENT  v4.4.0")
     print("=" * 76)
     print(f"  Features total     : {len(ALL_FEATURES)}")
-    print(f"  Clustering features: {len(CLUSTERING_FEATURES)} (sparse features moved to auxiliary)")
-    print(f"  Auxiliary (sparse) : {len(SPARSE_CLUSTERING_AUXILIARY)} excluded from PCA — "
-          f"binge_index_score, reactivation_signal, satisfaction_score,")
-    print(f"                       support_friction_score, drop_pattern_score, campaign_receptivity")
+    print(f"  Clustering features: {len(CLUSTERING_FEATURES)} "
+          f"(collinear + sparse features moved to auxiliary)")
+    print(f"  Auxiliary (sparse) : {len(SPARSE_CLUSTERING_AUXILIARY)} excluded from PCA")
+    print(f"     Sparse: binge_index_score, reactivation_signal, satisfaction_score,")
+    print(f"             support_friction_score, drop_pattern_score, campaign_receptivity")
+    print(f"     Collinear (FS-04/05/06 + empirical): recency_adjusted_completion,")
+    print(f"             completion_tier, completion_variance_signal,")
+    print(f"             subscription_tier_score, attention_quality_score (r=0.97 fresh data)")
     print()
 
     all_pass = True
@@ -445,7 +580,7 @@ def run_assessment(input_path: str) -> bool:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="TwinSim Feature Store Assessment v4.0")
+    ap = argparse.ArgumentParser(description="TwinSim Feature Store Assessment v4.3.0")
     ap.add_argument("--input", default="feature_store.csv")
     args = ap.parse_args()
     ok = run_assessment(args.input)

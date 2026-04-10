@@ -153,61 +153,11 @@ def upload_page() -> rx.Component:
                 spacing="3", align="center",
             ),
 
-            # ── Source description chips ─────────────────────────────────────
-            rx.grid(
-                rx.box(
-                    rx.hstack(
-                        rx.box(width="10px", height="10px", border_radius="50%",
-                               background="#22C55E", flex_shrink="0"),
-                        rx.vstack(
-                            rx.text("user_profiles.csv", font_size="12px",
-                                    font_weight="600", color="#111827"),
-                            rx.text("38 cols · subscription, device & engagement",
-                                    font_size="11px", color="#6B7280"),
-                            spacing="0", align="start",
-                        ),
-                        spacing="2", align="center",
-                    ),
-                    **styles.CARD_COMPACT,
-                ),
-                rx.box(
-                    rx.hstack(
-                        rx.box(width="10px", height="10px", border_radius="50%",
-                               background="#3B82F6", flex_shrink="0"),
-                        rx.vstack(
-                            rx.text("session_events.csv", font_size="12px",
-                                    font_weight="600", color="#111827"),
-                            rx.text("36 cols · user watch events & quality signals",
-                                    font_size="11px", color="#6B7280"),
-                            spacing="0", align="start",
-                        ),
-                        spacing="2", align="center",
-                    ),
-                    **styles.CARD_COMPACT,
-                ),
-                rx.box(
-                    rx.hstack(
-                        rx.box(width="10px", height="10px", border_radius="50%",
-                               background=styles.ACCENT, flex_shrink="0"),
-                        rx.vstack(
-                            rx.text("content_catalogue.csv", font_size="12px",
-                                    font_weight="600", color="#111827"),
-                            rx.text("9 cols · content type, genre & availability",
-                                    font_size="11px", color="#6B7280"),
-                            spacing="0", align="start",
-                        ),
-                        spacing="2", align="center",
-                    ),
-                    **styles.CARD_COMPACT,
-                ),
-                columns="3", spacing="3", width="100%",
-            ),
-
             # ── Drop zones (order: profiles → sessions → catalogue) ──────────
             rx.grid(
                 _file_drop_zone(
                     "User Profiles",
-                    "user_profiles.csv · 38 columns",
+                    "subscription, device & engagement",
                     "upload_profiles",
                     PipelineState.profiles_filename,
                     PipelineState.handle_profiles_upload,
@@ -215,7 +165,7 @@ def upload_page() -> rx.Component:
                 ),
                 _file_drop_zone(
                     "Session Events",
-                    "session_events.csv · 36 columns",
+                    "user watch events & quality signals",
                     "upload_sessions",
                     PipelineState.sessions_filename,
                     PipelineState.handle_sessions_upload,
@@ -223,7 +173,7 @@ def upload_page() -> rx.Component:
                 ),
                 _file_drop_zone(
                     "Content Catalogue",
-                    "content_catalogue.csv · 9 columns",
+                    "content type, genre & availability",
                     "upload_catalogue",
                     PipelineState.catalogue_filename,
                     PipelineState.handle_catalogue_upload,
