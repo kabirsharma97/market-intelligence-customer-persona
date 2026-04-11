@@ -1039,3 +1039,137 @@ class PipelineState(rx.State):
 
     def back_to_overview(self):
         self.s6_active_persona_idx = -1
+
+    def download_persona_pdf(self, idx: int):
+        """Generate and download a PDF report for the given persona."""
+        import base64
+        from fpdf import FPDF
+
+        if idx < 0 or idx >= len(self.s6_personas):
+            return
+        p = self.s6_personas[idx]
+
+        pdf = FPDF()
+        pdf.set_auto_page_break(auto=True, margin=15)
+        pdf.add_page()
+
+        # ── Header bar ─────────────────────────────────────────────────────
+        pdf.set_fill_color(232, 70, 30)          # EXL orange
+        pdf.rect(0, 0, 210, 18, "F")
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_xy(10, 4)
+        pdf.cell(0, 10, "EXL  |  Market Intelligence  —  Customer Persona Report")
+
+        pdf.set_text_color(30, 30, 30)
+        pdf.set_xy(10, 24)
+
+        # ── Persona name & label ────────────────────────────────────────────
+        pdf.set_font("Helvetica", "B", 18)
+        pdf.cell(0, 10, str(p.get("name", "")), ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(120, 120, 120)
+        pdf.cell(0, 6,
+                 f"Segment: {p.get('label', '')}   |   "
+                 f"Size: {p.get('size_pct', 0)}% of customer base   |   "
+                 f"Churn level: {str(p.get('churn_level', '')).title()}",
+                 ln=True)
+        pdf.ln(4)
+
+        # ── Divider ─────────────────────────────────────────────────────────
+        pdf.set_draw_color(220, 220, 220)
+        pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+        pdf.ln(5)
+
+        # ── Description ─────────────────────────────────────────────────────
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 7, "Persona Overview", ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(60, 60, 60)
+        pdf.multi_cell(0, 5, str(p.get("description", "")))
+        pdf.ln(5)
+
+        # ── Key metrics ─────────────────────────────────────────────────────
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.set_text_color(30, 30, 30)
+        pdf.cell(0, 7, "Key Metrics", ln=True)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(60, 60, 60)
+        pdf.cell(60, 6, f"Churn Risk:       {p.get('churn', 0)}%")
+        pdf.cell(60, 6, f"Completion Rate:  {p.get('completion', 0)}%")
+        pdf.cell(60, 6, f"Re-engagement:   {p.get('reactivation', 0)}%", ln=True)
+        pdf.ln(4)
+
+        # ── Content preferences ─────────────────────────────────────────────
+        if p.get("preferred_content") or p.get("arc_affinity"):
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 7, "Content Preferences", ln=True)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(60, 60, 60)
+            if p.get("preferred_content"):
+                pdf.cell(0, 6, f"Preferred content:  {p.get('preferred_content')}", ln=True)
+            if p.get("arc_affinity"):
+                pdf.cell(0, 6, f"Arc affinity:       {p.get('arc_affinity')}", ln=True)
+            pdf.ln(3)
+
+        # ── Strategic recommendation ────────────────────────────────────────
+        if p.get("strategic_rec"):
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 7, "Strategic Recommendation", ln=True)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(60, 60, 60)
+            pdf.multi_cell(0, 5, str(p.get("strategic_rec", "")))
+            pdf.ln(3)
+
+        # ── Narrative ───────────────────────────────────────────────────────
+        if p.get("narrative"):
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 7, "Behavioural Narrative", ln=True)
+            pdf.set_font("Helvetica", "", 10)
+            pdf.set_text_color(60, 60, 60)
+            pdf.multi_cell(0, 5, str(p.get("narrative", "")))
+            pdf.ln(3)
+
+        # ── Interventions ───────────────────────────────────────────────────
+        interventions = p.get("interventions", [])
+        if interventions:
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_text_color(30, 30, 30)
+            pdf.cell(0, 7, "Intervention Playbook", ln=True)
+            for i, iv in enumerate(interventions, 1):
+                pdf.set_font("Helvetica", "B", 10)
+                pdf.set_text_color(232, 70, 30)
+                pdf.cell(0, 6, f"{i}. {iv.get('name', '')}", ln=True)
+                pdf.set_font("Helvetica", "", 10)
+                pdf.set_text_color(60, 60, 60)
+                if iv.get("action"):
+                    pdf.multi_cell(0, 5, f"   Action: {iv.get('action', '')}")
+                if iv.get("why"):
+                    pdf.multi_cell(0, 5, f"   Why: {iv.get('why', '')}")
+                pdf.ln(2)
+
+        # ── Footer ──────────────────────────────────────────────────────────
+        pdf.set_y(-20)
+        pdf.set_font("Helvetica", "I", 8)
+        pdf.set_text_color(160, 160, 160)
+        pdf.cell(0, 5,
+                 "Generated by EXL Market Intelligence Platform  |  Confidential",
+                 align="C")
+
+        # ── Encode & trigger download ────────────────────────────────────────
+        pdf_bytes = pdf.output()
+        pdf_b64   = base64.b64encode(pdf_bytes).decode()
+        filename  = f"persona_{p.get('label', 'report')}.pdf"
+
+        return rx.call_script(
+            f"const a=document.createElement('a');"
+            f"a.href='data:application/pdf;base64,{pdf_b64}';"
+            f"a.download='{filename}';"
+            f"document.body.appendChild(a);"
+            f"a.click();"
+            f"document.body.removeChild(a);"
+        )

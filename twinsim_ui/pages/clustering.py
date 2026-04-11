@@ -149,7 +149,7 @@ def clustering_page() -> rx.Component:
                         font_size="36px", font_weight="700", color="#111827"),
                 rx.text("Total Events", font_size="12px", font_weight="600",
                         color="#374151"),
-                rx.text("records in feature_store.csv",
+                rx.text("session events clustered",
                         font_size="10px", color="#9CA3AF"),
                 spacing="0", align="center",
                 padding="16px", background="white",
