@@ -45,7 +45,7 @@ def _step_dot(idx: int) -> rx.Component:
     )
 
 
-def _nav_item(label: str, page: str, step_idx: int) -> rx.Component:
+def _nav_item(label: str, page: str, step_idx: int, icon: str) -> rx.Component:
     is_active = PipelineState.active_page == page
     return rx.hstack(
         rx.box(
@@ -56,6 +56,12 @@ def _nav_item(label: str, page: str, step_idx: int) -> rx.Component:
         ),
         rx.hstack(
             _step_dot(step_idx),
+            rx.icon(
+                icon,
+                size=14,
+                color=rx.cond(is_active, "white", "#6b7280"),
+                flex_shrink="0",
+            ),
             rx.text(
                 label,
                 font_size="12px",
@@ -82,14 +88,12 @@ def sidebar() -> rx.Component:
     return rx.vstack(
         # ── EXL Logo Header ─────────────────────────────────────────────────
         rx.vstack(
-            rx.text(
-                "EXL",
-                color="#E8461E",
-                font_size="38px",
-                font_weight="900",
-                letter_spacing="-0.03em",
-                line_height="1",
-                font_family="'Arial Black', 'Arial Bold', Arial, sans-serif",
+            rx.image(
+                src="/exl_logo.jpeg",
+                width="88px",
+                object_fit="contain",
+                mix_blend_mode="screen",
+                margin_bottom="6px",
             ),
             rx.text(
                 "Market Intelligence",
@@ -114,12 +118,12 @@ def sidebar() -> rx.Component:
                 font_size="9px", font_weight="700", color="#4b5563",
                 letter_spacing="0.12em", padding="12px 12px 6px",
             ),
-            _nav_item("01  Upload Dataset",            "upload",      0),
-            _nav_item("02  Ingestion & Feature Check", "ingest",      1),
-            _nav_item("03  Health & Quality Check",    "health",      2),
-            _nav_item("04  Feature Engineering",       "features",    3),
-            _nav_item("05  Clustering",                "clustering",  4),
-            _nav_item("06  Persona Intelligence",      "persona",     5),
+            _nav_item("Upload Dataset",           "upload",      0, "upload"),
+            _nav_item("Ingestion & Feature Check","ingest",      1, "database"),
+            _nav_item("Health & Quality Check",   "health",      2, "shield-check"),
+            _nav_item("Feature Engineering",      "features",    3, "cpu"),
+            _nav_item("Clustering",               "clustering",  4, "scatter-chart"),
+            _nav_item("Persona Intelligence",     "persona",     5, "users"),
             spacing="0", width="100%", align="start",
         ),
 
