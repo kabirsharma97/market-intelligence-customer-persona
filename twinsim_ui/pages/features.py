@@ -5,23 +5,94 @@ from twinsim_ui import styles
 
 
 def _assess_row(row: dict) -> rx.Component:
-    return rx.hstack(
-        rx.text(row["check"], font_size="12px", color="#374151", flex="3",
-                word_break="break-word"),
-        rx.cond(
-            row["status"] == "PASS",
-            rx.badge("✓ PASS", color_scheme="green", variant="soft", size="1"),
+    has_issue   = (row["status"] == "FAIL") | (row["status"] == "WARN")
+    is_expanded = row["expanded"] == "true"
+
+    return rx.vstack(
+        # ── Main row ──────────────────────────────────────────────────────
+        rx.hstack(
+            # Status dot
             rx.cond(
-                row["status"] == "WARN",
-                rx.badge("⚠ WARN", color_scheme="amber", variant="soft", size="1"),
-                rx.badge("✕ FAIL", color_scheme="red", variant="soft", size="1"),
+                row["status"] == "FAIL",
+                rx.box(width="8px", height="8px", border_radius="50%",
+                       background=styles.RED, flex_shrink="0"),
+                rx.cond(
+                    row["status"] == "WARN",
+                    rx.box(width="8px", height="8px", border_radius="50%",
+                           background=styles.AMBER, flex_shrink="0"),
+                    rx.box(width="8px", height="8px", border_radius="50%",
+                           background=styles.GREEN, flex_shrink="0"),
+                ),
             ),
+            # Check name (clean, no number prefix)
+            rx.text(
+                row["check"],
+                font_size="12px", color="#374151", flex="1",
+            ),
+            # Status badge
+            rx.cond(
+                row["status"] == "PASS",
+                rx.badge("✓ PASS", color_scheme="green", variant="soft", size="1"),
+                rx.cond(
+                    row["status"] == "WARN",
+                    rx.badge("⚠ WARN", color_scheme="amber", variant="soft", size="1"),
+                    rx.cond(
+                        row["status"] == "SKIP",
+                        rx.badge("· SKIP", color_scheme="gray", variant="soft", size="1"),
+                        rx.badge("✕ FAIL", color_scheme="red", variant="soft", size="1"),
+                    ),
+                ),
+            ),
+            # Expand chevron — only for WARN / FAIL
+            rx.cond(
+                has_issue,
+                rx.button(
+                    rx.cond(is_expanded, "▲", "▼"),
+                    on_click=PipelineState.toggle_assess(row["check"]),
+                    background="transparent",
+                    color="#6B7280",
+                    font_size="10px",
+                    padding="2px 6px",
+                    cursor="pointer",
+                    border="1px solid #E5E7EB",
+                    border_radius="4px",
+                    _hover={"background": "#F9FAFB"},
+                    flex_shrink="0",
+                ),
+                rx.box(width="28px"),
+            ),
+            spacing="3", align="center", width="100%",
+            padding="9px 0",
         ),
-        rx.text(row["detail"], font_size="11px", color="#6B7280", flex="4",
-                word_break="break-word"),
-        spacing="3", align="center", width="100%",
-        padding="8px 0",
+        # ── Expanded reason panel ─────────────────────────────────────────
+        rx.cond(
+            is_expanded & has_issue,
+            rx.box(
+                rx.text(
+                    row["detail"],
+                    font_size="11px",
+                    color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
+                    line_height="1.6",
+                    word_break="break-word",
+                ),
+                background=rx.cond(
+                    row["status"] == "FAIL", styles.RED_BG, styles.AMBER_BG,
+                ),
+                border=rx.cond(
+                    row["status"] == "FAIL",
+                    f"1px solid {styles.RED}",
+                    f"1px solid {styles.AMBER}",
+                ),
+                border_radius="6px",
+                padding="10px 14px",
+                width="100%",
+                margin_bottom="4px",
+            ),
+            rx.box(),
+        ),
         border_bottom="1px solid #F3F4F6",
+        spacing="0",
+        width="100%",
     )
 
 
@@ -150,12 +221,12 @@ def features_page() -> rx.Component:
                     ),
                     rx.box(height="1px", background="#E5E7EB", width="100%"),
                     rx.hstack(
+                        rx.box(width="8px", flex_shrink="0"),  # dot spacer
                         rx.text("Check", font_size="11px", font_weight="600",
-                                color="#9CA3AF", flex="3"),
+                                color="#9CA3AF", flex="1"),
                         rx.text("Status", font_size="11px", font_weight="600",
                                 color="#9CA3AF"),
-                        rx.text("Detail", font_size="11px", font_weight="600",
-                                color="#9CA3AF", flex="4"),
+                        rx.box(width="28px", flex_shrink="0"),  # chevron spacer
                         spacing="3", width="100%", padding="6px 0",
                     ),
                     rx.foreach(PipelineState.s4_assessment_rows, _assess_row),

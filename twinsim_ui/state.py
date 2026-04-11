@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -232,6 +233,7 @@ class PipelineState(rx.State):
     s4_running:            bool       = False
     s4_error:              str        = ""
     s4_feature_store_path: str        = ""
+    s4_expanded_assess:    List[str]  = []
 
     # ── Step 5: Clustering ──────────────────────────────────────────────────────
     s5_running:           bool       = False
@@ -315,6 +317,15 @@ class PipelineState(rx.State):
             if row["check_group"] == check_group
             else row
             for row in self.s3_check_rows
+        ]
+
+    def toggle_assess(self, check: str):
+        """Expand or collapse a feature assessment reason row."""
+        self.s4_assessment_rows = [
+            {**row, "expanded": "false" if row["expanded"] == "true" else "true"}
+            if row["check"] == check
+            else row
+            for row in self.s4_assessment_rows
         ]
 
     def _refresh_upload_flag(self):
@@ -625,7 +636,15 @@ class PipelineState(rx.State):
             for i, line in enumerate(lines):
                 for tag, status in tag_map.items():
                     if tag in line:
-                        check_name = line.replace(tag, "").strip()
+                        raw_name = line.replace(tag, "").strip()
+                        # Strip numeric prefix e.g. "01_feature_completeness" → "Feature Completeness"
+                        m = re.match(r"^(\d+)_(.+)$", raw_name)
+                        if m:
+                            sort_num   = int(m.group(1))
+                            clean_name = m.group(2).replace("_", " ").title()
+                        else:
+                            sort_num   = 999
+                            clean_name = raw_name.replace("_", " ").title()
                         detail = ""
                         if i + 1 < len(lines):
                             nxt = lines[i + 1].strip()
@@ -634,8 +653,16 @@ class PipelineState(rx.State):
                                 ["[PASS]","[FAIL]","[WARN]","[SKIP]","===","OVERALL"]
                             ):
                                 detail = nxt
-                        assess_rows.append({"check": check_name, "status": status, "detail": detail})
+                        assess_rows.append({
+                            "check":    clean_name,
+                            "sort_num": sort_num,
+                            "status":   status,
+                            "detail":   detail,
+                            "expanded": "false",
+                        })
                         break
+            # Sort ascending by original numeric prefix
+            assess_rows.sort(key=lambda x: x["sort_num"])
 
             if not assess_rows:
                 assess_rows = [{
