@@ -95,8 +95,7 @@ def clustering_page() -> rx.Component:
                                 font_size="14px", font_weight="600",
                                 color="#111827"),
                         rx.text(
-                            "clustering_engine.py — K-Means optimisation · "
-                            "then clustering_audit.py — validation gate",
+                            "K-Means optimisation · silhouette scoring · validation gate",
                             font_size="12px", color="#6B7280",
                         ),
                         spacing="0", align="start",
@@ -258,8 +257,7 @@ def clustering_page() -> rx.Component:
                                     font_size="14px", font_weight="600",
                                     color="#111827"),
                             rx.text(
-                                "clustering_audit.py — structural integrity, "
-                                "balance, coverage and stability checks",
+                                "Verifies cluster balance, coverage, stability and structural integrity",
                                 font_size="12px", color="#6B7280",
                             ),
                             spacing="0", align="start",
