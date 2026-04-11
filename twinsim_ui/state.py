@@ -19,6 +19,53 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 PYTHON = sys.executable
 
+# ── Health check descriptions (plain English for business stakeholders) ───────
+CHECK_DESCRIPTIONS = {
+    "A1":               "No duplicate events in session data",
+    "A2":               "Required session fields have no missing values",
+    "A3":               "All session fields have the correct data type",
+    "A4":               "All session numeric values are within allowed ranges",
+    "A5":               "Timestamps are valid and sessions are recent",
+    "A6":               "Drop rates and completion % add up correctly",
+    "A7":               "Churn, completion and reactivation events are logically consistent",
+    "A8":               "Sessions are numbered in the correct time order per user",
+    "A9":               "Customer segments are balanced within expected proportions",
+    "A10":              "Binge watchers complete more content than churners",
+    "A11":              "Satisfaction ratings are present and within the 1–5 scale",
+    "A12":              "Skip-intro and rewatch flags are logically valid per content type",
+    "A13":              "Cast-to-TV flag is only set for devices that support casting",
+    "A14":              "Higher broadband speed correlates with less buffering",
+    "A15":              "Early and mid-drop flags match the completion percentage",
+    "A16":              "Days since last session is blank for a user's very first session",
+    "A17":              "Number of sessions stays within per content-type limits",
+    "A18":              "Network stress flag aligns with jitter and buffer readings",
+    "A19":              "Episode position never exceeds the total episodes in a series",
+    "A_unavailability": "Geo-blocked sessions have zero watch activity and no satisfaction score",
+    "B15":              "No duplicate user IDs in profile data",
+    "B16":              "Required profile fields have no missing values",
+    "B17":              "All profile numeric values are within valid ranges",
+    "B18":              "Subscription price matches the plan type, bundle and discount",
+    "B19":              "Engagement scores and lifetime value are complete and in range",
+    "B20":              "New profile fields contain only valid, expected values",
+    "B21":              "Support ticket fields are consistent and within expected fill rate",
+    "B22":              "Users with failed payments raise more support tickets",
+    "B23":              "High-churn users raise more tickets than loyal binge watchers",
+    "B24":              "Binge watchers have a higher binge score than quick churners",
+    "B25":              "Smart TV users do not have casting preference switched on",
+    "C25":              "Every session record has a matching user profile",
+    "C26":              "Every user profile has at least one session record",
+}
+
+def _check_sort_key(grp: str) -> tuple:
+    """Sort check groups: A1 < A2 < A19 < A_unavailability < B15 < C25."""
+    import re
+    prefix_order = {"A": 0, "B": 1, "C": 2}
+    letter = grp[0].upper()
+    rest   = grp[1:].lstrip("_")
+    m      = re.match(r"^(\d+)", rest)
+    num    = int(m.group(1)) if m else 999
+    return (prefix_order.get(letter, 9), num)
+
 # ── Persona label → display constants ─────────────────────────────────────────
 PERSONA_NAMES = {
     "binge_heavy":         "The Binge Watcher",
@@ -164,15 +211,16 @@ class PipelineState(rx.State):
     s2_enrich_path:       str        = ""
 
     # ── Step 3: Health ──────────────────────────────────────────────────────────
-    s3_total_checks: int        = 0
-    s3_passed:       int        = 0
-    s3_warned:       int        = 0
-    s3_failed:       int        = 0
-    s3_check_rows:   List[dict] = []
-    s3_gate_passed:  bool       = False
-    s3_running:      bool       = False
-    s3_error:        str        = ""
-    s3_report_path:  str        = ""
+    s3_total_checks:    int        = 0
+    s3_passed:          int        = 0
+    s3_warned:          int        = 0
+    s3_failed:          int        = 0
+    s3_check_rows:      List[dict] = []
+    s3_expanded_checks: List[str]  = []
+    s3_gate_passed:     bool       = False
+    s3_running:         bool       = False
+    s3_error:           str        = ""
+    s3_report_path:     str        = ""
 
     # ── Step 4: Feature Engineering ─────────────────────────────────────────────
     s4_total_features:     int        = 0
@@ -259,6 +307,15 @@ class PipelineState(rx.State):
             ]
         else:
             self.s2_expanded_categories = self.s2_expanded_categories + [category]
+
+    def toggle_check(self, check_group: str):
+        """Expand or collapse a health check reason row."""
+        self.s3_check_rows = [
+            {**row, "expanded": "false" if row["expanded"] == "true" else "true"}
+            if row["check_group"] == check_group
+            else row
+            for row in self.s3_check_rows
+        ]
 
     def _refresh_upload_flag(self):
         self.all_uploaded = bool(
@@ -474,13 +531,27 @@ class PipelineState(rx.State):
             rdf["group"] = rdf["check"].str.extract(r"^([A-Za-z_]+\d*)")
             summary: list[dict] = []
             for grp, sub in rdf.groupby("group"):
+                grp_str  = str(grp)
+                n_pass   = int((sub["status"] == "PASS").sum())
+                n_warn   = int((sub["status"] == "WARN").sum())
+                n_fail   = int((sub["status"] == "FAIL").sum())
+                # Overall status for the group
+                grp_status = "FAIL" if n_fail > 0 else ("WARN" if n_warn > 0 else "PASS")
+                # Collect reason text from non-passing rows (for expandable detail)
+                bad_rows   = sub[sub["status"].isin(["FAIL", "WARN"])]
+                reason_str = " · ".join(bad_rows["detail"].tolist()) if len(bad_rows) else ""
                 summary.append({
-                    "check_group": str(grp),
-                    "passed": int((sub["status"] == "PASS").sum()),
-                    "warned": int((sub["status"] == "WARN").sum()),
-                    "failed": int((sub["status"] == "FAIL").sum()),
-                    "detail": str(sub["check"].iloc[0]),
+                    "check_group": grp_str,
+                    "description": CHECK_DESCRIPTIONS.get(grp_str, grp_str),
+                    "passed":      n_pass,
+                    "warned":      n_warn,
+                    "failed":      n_fail,
+                    "status":      grp_status,
+                    "reason":      reason_str,
+                    "expanded":    "false",
                 })
+            # Sort: A1 < A2 < ... < A19 < A_unavailability < B15 < C25
+            summary.sort(key=lambda x: _check_sort_key(x["check_group"]))
 
             gate = failed == 0
             self.s3_total_checks = total

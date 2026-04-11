@@ -3,75 +3,121 @@ import reflex as rx
 from twinsim_ui.state import PipelineState
 from twinsim_ui import styles
 
-# Friendly names for check groups
-CHECK_LABELS = {
-    "A1":  "A1 — Event ID uniqueness",
-    "A2":  "A2 — Null / missing values",
-    "A3":  "A3 — Data type validation",
-    "A4":  "A4 — Range validity",
-    "A5":  "A5 — Timestamp consistency",
-    "A6":  "A6 — Session triangle logic",
-    "A7":  "A7 — Event type consistency",
-    "A8":  "A8 — Session ordering",
-    "A9":  "A9 — Segment distribution",
-    "A10": "A10 — Completion ordering",
-    "A11": "A11 — Sparse satisfaction",
-    "A12": "A12 — Skip-intro guard",
-    "A13": "A13 — Casting guard",
-    "A14": "A14 — Bitrate & network",
-    "A15": "A15 — Drop flag alignment",
-    "A16": "A16 — Days since first session",
-    "A17": "A17 — Depth caps",
-    "A18": "A18 — Network stress",
-    "A19": "A19 — Episode position",
-    "A_u": "A_u — Content unavailability",
-    "B15": "B15 — User-ID uniqueness",
-    "B16": "B16 — Profile nullability",
-    "B17": "B17 — Profile range checks",
-    "B18": "B18 — Price validation",
-    "B19": "B19 — Lifecycle trajectory",
-    "B20": "B20 — New profile fields",
-    "B21": "B21 — Sparse ticket data",
-    "B22": "B22 — Ticket-payment cross",
-    "B23": "B23 — Ticket-segment cross",
-    "B24": "B24 — Trajectory segment",
-    "C25": "C25 — Cross-file join integrity",
-    "C26": "C26 — Geo-block consistency",
-}
+
+def _status_dot(status: str) -> rx.Component:
+    """Small coloured dot showing PASS / WARN / FAIL."""
+    return rx.cond(
+        status == "FAIL",
+        rx.box(width="8px", height="8px", border_radius="50%",
+               background=styles.RED, flex_shrink="0"),
+        rx.cond(
+            status == "WARN",
+            rx.box(width="8px", height="8px", border_radius="50%",
+                   background=styles.AMBER, flex_shrink="0"),
+            rx.box(width="8px", height="8px", border_radius="50%",
+                   background=styles.GREEN, flex_shrink="0"),
+        ),
+    )
 
 
 def _check_row(row: dict) -> rx.Component:
-    return rx.hstack(
-        rx.text(row["check_group"], font_size="11px", color="#6B7280",
-                font_weight="500", min_width="40px"),
-        rx.text(row["detail"], font_size="12px", color="#374151", flex="3",
-                word_break="break-word"),
+    has_issue = (row["status"] == "FAIL") | (row["status"] == "WARN")
+    is_expanded = row["expanded"] == "true"
+
+    return rx.vstack(
+        # ── Main row ──────────────────────────────────────────────────────
         rx.hstack(
-            rx.badge(
-                row["passed"].to_string() + " pass",
-                color_scheme="green", variant="soft", size="1",
+            # Status dot
+            _status_dot(row["status"]),
+            # Code chip
+            rx.box(
+                rx.text(row["check_group"], font_size="10px",
+                        font_weight="700", color="#374151"),
+                background="#F3F4F6",
+                border="1px solid #E5E7EB",
+                border_radius="4px",
+                padding="2px 7px",
+                min_width="52px",
+                text_align="center",
             ),
-            rx.cond(
-                row["warned"].to_string() != "0",
-                rx.badge(
-                    row["warned"].to_string() + " warn",
-                    color_scheme="amber", variant="soft", size="1",
+            # Plain English description
+            rx.text(
+                row["description"],
+                font_size="12px", color="#374151",
+                flex="1",
+            ),
+            # Result badges
+            rx.hstack(
+                rx.cond(
+                    row["passed"].to_string() != "0",
+                    rx.badge(row["passed"].to_string() + " pass",
+                             color_scheme="green", variant="soft", size="1"),
+                    rx.box(),
                 ),
-                rx.box(),
-            ),
-            rx.cond(
-                row["failed"].to_string() != "0",
-                rx.badge(
-                    row["failed"].to_string() + " fail",
-                    color_scheme="red", variant="soft", size="1",
+                rx.cond(
+                    row["warned"].to_string() != "0",
+                    rx.badge(row["warned"].to_string() + " warn",
+                             color_scheme="amber", variant="soft", size="1"),
+                    rx.box(),
                 ),
-                rx.box(),
+                rx.cond(
+                    row["failed"].to_string() != "0",
+                    rx.badge(row["failed"].to_string() + " fail",
+                             color_scheme="red", variant="soft", size="1"),
+                    rx.box(),
+                ),
+                spacing="1", flex_shrink="0",
             ),
-            spacing="1",
+            # Expand chevron — only shown when there is a warning or failure
+            rx.cond(
+                has_issue,
+                rx.button(
+                    rx.cond(is_expanded, "▲", "▼"),
+                    on_click=PipelineState.toggle_check(row["check_group"]),
+                    background="transparent",
+                    color="#6B7280",
+                    font_size="10px",
+                    padding="2px 6px",
+                    cursor="pointer",
+                    border="1px solid #E5E7EB",
+                    border_radius="4px",
+                    _hover={"background": "#F9FAFB"},
+                    flex_shrink="0",
+                ),
+                rx.box(width="28px"),  # placeholder to keep alignment
+            ),
+            spacing="3", align="center", width="100%",
+            padding="9px 0",
         ),
-        spacing="3", align="center", width="100%",
-        padding="8px 0",
+        # ── Expanded reason panel ─────────────────────────────────────────
+        rx.cond(
+            is_expanded & has_issue,
+            rx.box(
+                rx.text(
+                    row["reason"],
+                    font_size="11px",
+                    color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
+                    line_height="1.6",
+                    word_break="break-word",
+                ),
+                background=rx.cond(
+                    row["status"] == "FAIL", styles.RED_BG, styles.AMBER_BG,
+                ),
+                border=rx.cond(
+                    row["status"] == "FAIL",
+                    f"1px solid {styles.RED}",
+                    f"1px solid {styles.AMBER}",
+                ),
+                border_radius="6px",
+                padding="10px 14px",
+                width="100%",
+                margin_bottom="4px",
+            ),
+            rx.box(),
+        ),
         border_bottom="1px solid #F3F4F6",
+        spacing="0",
+        width="100%",
     )
 
 
@@ -189,12 +235,14 @@ def health_page() -> rx.Component:
                     rx.box(height="1px", background="#E5E7EB", width="100%"),
                     # Column headers
                     rx.hstack(
+                        rx.box(width="8px", flex_shrink="0"),  # dot spacer
                         rx.text("Code", font_size="11px", font_weight="600",
-                                color="#9CA3AF", min_width="40px"),
-                        rx.text("Description", font_size="11px", font_weight="600",
-                                color="#9CA3AF", flex="3"),
+                                color="#9CA3AF", min_width="52px"),
+                        rx.text("What is being checked", font_size="11px",
+                                font_weight="600", color="#9CA3AF", flex="1"),
                         rx.text("Results", font_size="11px", font_weight="600",
                                 color="#9CA3AF"),
+                        rx.box(width="28px", flex_shrink="0"),  # chevron spacer
                         spacing="3", width="100%", padding="6px 0",
                     ),
                     rx.foreach(PipelineState.s3_check_rows, _check_row),
