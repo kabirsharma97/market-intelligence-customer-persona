@@ -57,6 +57,24 @@ CHECK_DESCRIPTIONS = {
     "C26":              "Every user profile has at least one session record",
 }
 
+# ── Feature assessment descriptions (plain English for business stakeholders) ──
+ASSESS_DESCRIPTIONS = {
+    "Feature Completeness":          "All expected ML features are present in the feature store",
+    "Null Check":                    "No missing values exist across any of the engineered features",
+    "Range Check":                   "All numeric features fall within their declared valid ranges",
+    "Variance Check":                "Every clustering feature has enough variation to be useful",
+    "Churn Risk Consistency":        "Users who churned score higher on churn risk than active users",
+    "Segment Completion Ordering":   "Binge watchers complete more content than quick churners",
+    "Recency Weight":                "Every session has been assigned a positive recency score",
+    "High Value Churn Flag":         "High-value churn events correctly meet all three required conditions",
+    "Sparse Feature Handling":       "Optional features such as satisfaction and campaign scores handle blanks safely",
+    "Episode Position Score":        "Episode position scores contain only the three allowed values",
+    "Trajectory Score Validity":     "Lifecycle stage and plan trajectory scores are complete and valid",
+    "Superfan Ltv Correlation":      "Superfan users generate higher lifetime value than non-superfans",
+    "Collinearity Check":            "No two features are so similar that one becomes redundant for clustering",
+    "Hdbscan Restoration Trigger":   "Checks whether the data needs a different clustering algorithm",
+}
+
 def _check_sort_key(grp: str) -> tuple:
     """Sort check groups: A1 < A2 < A19 < A_unavailability < B15 < C25."""
     import re
@@ -654,11 +672,12 @@ class PipelineState(rx.State):
                             ):
                                 detail = nxt
                         assess_rows.append({
-                            "check":    clean_name,
-                            "sort_num": sort_num,
-                            "status":   status,
-                            "detail":   detail,
-                            "expanded": "false",
+                            "check":       clean_name,
+                            "description": ASSESS_DESCRIPTIONS.get(clean_name, clean_name),
+                            "sort_num":    sort_num,
+                            "status":      status,
+                            "detail":      detail,
+                            "expanded":    "false",
                         })
                         break
             # Sort ascending by original numeric prefix

@@ -24,9 +24,19 @@ def _assess_row(row: dict) -> rx.Component:
                            background=styles.GREEN, flex_shrink="0"),
                 ),
             ),
-            # Check name (clean, no number prefix)
+            # Check name chip
+            rx.box(
+                rx.text(row["check"], font_size="10px", font_weight="700",
+                        color="#374151", white_space="nowrap"),
+                background="#F3F4F6",
+                border="1px solid #E5E7EB",
+                border_radius="4px",
+                padding="2px 7px",
+                flex_shrink="0",
+            ),
+            # Plain English description
             rx.text(
-                row["check"],
+                row["description"],
                 font_size="12px", color="#374151", flex="1",
             ),
             # Status badge
@@ -221,12 +231,14 @@ def features_page() -> rx.Component:
                     ),
                     rx.box(height="1px", background="#E5E7EB", width="100%"),
                     rx.hstack(
-                        rx.box(width="8px", flex_shrink="0"),  # dot spacer
+                        rx.box(width="8px", flex_shrink="0"),    # dot spacer
                         rx.text("Check", font_size="11px", font_weight="600",
-                                color="#9CA3AF", flex="1"),
+                                color="#9CA3AF"),
+                        rx.text("What is being checked", font_size="11px",
+                                font_weight="600", color="#9CA3AF", flex="1"),
                         rx.text("Status", font_size="11px", font_weight="600",
                                 color="#9CA3AF"),
-                        rx.box(width="28px", flex_shrink="0"),  # chevron spacer
+                        rx.box(width="28px", flex_shrink="0"),   # chevron spacer
                         spacing="3", width="100%", padding="6px 0",
                     ),
                     rx.foreach(PipelineState.s4_assessment_rows, _assess_row),
