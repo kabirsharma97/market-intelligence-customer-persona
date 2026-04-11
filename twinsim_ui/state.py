@@ -1045,6 +1045,26 @@ class PipelineState(rx.State):
         import base64
         from fpdf import FPDF
 
+        def _safe(text: str) -> str:
+            """Replace Unicode characters that Helvetica cannot encode."""
+            return (
+                str(text)
+                .replace("\u2014", "-")   # em dash  —
+                .replace("\u2013", "-")   # en dash  –
+                .replace("\u2019", "'")   # right single quote  '
+                .replace("\u2018", "'")   # left single quote   '
+                .replace("\u201c", '"')   # left double quote   "
+                .replace("\u201d", '"')   # right double quote  "
+                .replace("\u2022", "*")   # bullet  •
+                .replace("\u2192", "->")  # arrow   →
+                .replace("\u00e9", "e")   # é
+                .replace("\u00e0", "a")   # à
+                .replace("\u00fc", "u")   # ü
+                .replace("\u00f6", "o")   # ö
+                .encode("latin-1", errors="replace")
+                .decode("latin-1")
+            )
+
         if idx < 0 or idx >= len(self.s6_personas):
             return
         p = self.s6_personas[idx]
@@ -1054,25 +1074,27 @@ class PipelineState(rx.State):
         pdf.add_page()
 
         # ── Header bar ─────────────────────────────────────────────────────
-        pdf.set_fill_color(232, 70, 30)          # EXL orange
+        pdf.set_fill_color(232, 70, 30)
         pdf.rect(0, 0, 210, 18, "F")
         pdf.set_font("Helvetica", "B", 11)
         pdf.set_text_color(255, 255, 255)
         pdf.set_xy(10, 4)
-        pdf.cell(0, 10, "EXL  |  Market Intelligence  —  Customer Persona Report")
+        pdf.cell(0, 10, "EXL  |  Market Intelligence - Customer Persona Report")
 
         pdf.set_text_color(30, 30, 30)
         pdf.set_xy(10, 24)
 
         # ── Persona name & label ────────────────────────────────────────────
         pdf.set_font("Helvetica", "B", 18)
-        pdf.cell(0, 10, str(p.get("name", "")), ln=True)
+        pdf.cell(0, 10, _safe(p.get("name", "")), ln=True)
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(120, 120, 120)
         pdf.cell(0, 6,
-                 f"Segment: {p.get('label', '')}   |   "
-                 f"Size: {p.get('size_pct', 0)}% of customer base   |   "
-                 f"Churn level: {str(p.get('churn_level', '')).title()}",
+                 _safe(
+                     f"Segment: {p.get('label', '')}   |   "
+                     f"Size: {p.get('size_pct', 0)}% of customer base   |   "
+                     f"Churn level: {str(p.get('churn_level', '')).title()}"
+                 ),
                  ln=True)
         pdf.ln(4)
 
@@ -1087,7 +1109,7 @@ class PipelineState(rx.State):
         pdf.cell(0, 7, "Persona Overview", ln=True)
         pdf.set_font("Helvetica", "", 10)
         pdf.set_text_color(60, 60, 60)
-        pdf.multi_cell(0, 5, str(p.get("description", "")))
+        pdf.multi_cell(0, 5, _safe(p.get("description", "")))
         pdf.ln(5)
 
         # ── Key metrics ─────────────────────────────────────────────────────
@@ -1098,7 +1120,7 @@ class PipelineState(rx.State):
         pdf.set_text_color(60, 60, 60)
         pdf.cell(60, 6, f"Churn Risk:       {p.get('churn', 0)}%")
         pdf.cell(60, 6, f"Completion Rate:  {p.get('completion', 0)}%")
-        pdf.cell(60, 6, f"Re-engagement:   {p.get('reactivation', 0)}%", ln=True)
+        pdf.cell(60, 6, f"Re-engagement:    {p.get('reactivation', 0)}%", ln=True)
         pdf.ln(4)
 
         # ── Content preferences ─────────────────────────────────────────────
@@ -1109,9 +1131,9 @@ class PipelineState(rx.State):
             pdf.set_font("Helvetica", "", 10)
             pdf.set_text_color(60, 60, 60)
             if p.get("preferred_content"):
-                pdf.cell(0, 6, f"Preferred content:  {p.get('preferred_content')}", ln=True)
+                pdf.cell(0, 6, _safe(f"Preferred content:  {p.get('preferred_content')}"), ln=True)
             if p.get("arc_affinity"):
-                pdf.cell(0, 6, f"Arc affinity:       {p.get('arc_affinity')}", ln=True)
+                pdf.cell(0, 6, _safe(f"Arc affinity:       {p.get('arc_affinity')}"), ln=True)
             pdf.ln(3)
 
         # ── Strategic recommendation ────────────────────────────────────────
@@ -1121,7 +1143,7 @@ class PipelineState(rx.State):
             pdf.cell(0, 7, "Strategic Recommendation", ln=True)
             pdf.set_font("Helvetica", "", 10)
             pdf.set_text_color(60, 60, 60)
-            pdf.multi_cell(0, 5, str(p.get("strategic_rec", "")))
+            pdf.multi_cell(0, 5, _safe(p.get("strategic_rec", "")))
             pdf.ln(3)
 
         # ── Narrative ───────────────────────────────────────────────────────
@@ -1131,7 +1153,7 @@ class PipelineState(rx.State):
             pdf.cell(0, 7, "Behavioural Narrative", ln=True)
             pdf.set_font("Helvetica", "", 10)
             pdf.set_text_color(60, 60, 60)
-            pdf.multi_cell(0, 5, str(p.get("narrative", "")))
+            pdf.multi_cell(0, 5, _safe(p.get("narrative", "")))
             pdf.ln(3)
 
         # ── Interventions ───────────────────────────────────────────────────
@@ -1143,13 +1165,13 @@ class PipelineState(rx.State):
             for i, iv in enumerate(interventions, 1):
                 pdf.set_font("Helvetica", "B", 10)
                 pdf.set_text_color(232, 70, 30)
-                pdf.cell(0, 6, f"{i}. {iv.get('name', '')}", ln=True)
+                pdf.cell(0, 6, _safe(f"{i}. {iv.get('name', '')}"), ln=True)
                 pdf.set_font("Helvetica", "", 10)
                 pdf.set_text_color(60, 60, 60)
                 if iv.get("action"):
-                    pdf.multi_cell(0, 5, f"   Action: {iv.get('action', '')}")
+                    pdf.multi_cell(0, 5, _safe(f"   Action: {iv.get('action', '')}"))
                 if iv.get("why"):
-                    pdf.multi_cell(0, 5, f"   Why: {iv.get('why', '')}")
+                    pdf.multi_cell(0, 5, _safe(f"   Why: {iv.get('why', '')}"))
                 pdf.ln(2)
 
         # ── Footer ──────────────────────────────────────────────────────────
