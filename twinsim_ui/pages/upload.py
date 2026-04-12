@@ -115,6 +115,7 @@ def _file_drop_zone(
         id=upload_id,
         accept=csv_accept,
         max_files=1,
+        max_size=50 * 1024 * 1024,  # 50 MB — session CSV is ~7 MB
         on_drop=handler(rx.upload_files(upload_id=upload_id)),
         border=rx.cond(
             filename_var != "",
