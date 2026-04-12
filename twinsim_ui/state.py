@@ -356,13 +356,23 @@ class PipelineState(rx.State):
     # ─────────────────────────────────────────────────────────────────────────
     # UPLOAD
     # ─────────────────────────────────────────────────────────────────────────
+    async def _save_upload(self, f: rx.UploadFile, dest) -> None:
+        """Write an uploaded file to disk in 1 MB chunks to handle large files."""
+        CHUNK = 1024 * 1024  # 1 MB
+        with open(dest, "wb") as out:
+            while True:
+                chunk = await f.read(CHUNK)
+                if not chunk:
+                    break
+                out.write(chunk)
+
     async def handle_sessions_upload(self, files: list[rx.UploadFile]):
         self.upload_error = ""
         if not files:
             return
         f = files[0]
         dest = UPLOAD_DIR / f.filename
-        dest.write_bytes(await f.read())
+        await self._save_upload(f, dest)
         self.sessions_filename = f.filename
         self.sessions_path = str(dest)
         self._refresh_upload_flag()
@@ -373,7 +383,7 @@ class PipelineState(rx.State):
             return
         f = files[0]
         dest = UPLOAD_DIR / f.filename
-        dest.write_bytes(await f.read())
+        await self._save_upload(f, dest)
         self.profiles_filename = f.filename
         self.profiles_path = str(dest)
         self._refresh_upload_flag()
@@ -384,7 +394,7 @@ class PipelineState(rx.State):
             return
         f = files[0]
         dest = UPLOAD_DIR / f.filename
-        dest.write_bytes(await f.read())
+        await self._save_upload(f, dest)
         self.catalogue_filename = f.filename
         self.catalogue_path = str(dest)
         self._refresh_upload_flag()
