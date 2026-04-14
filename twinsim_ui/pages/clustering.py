@@ -12,21 +12,21 @@ def _cluster_row(row: dict) -> rx.Component:
         rx.cond(row["churn_level"] == "medium", styles.AMBER, styles.GREEN),
     )
     return rx.hstack(
-        # Avatar + name
+        # Cluster ID
         rx.hstack(
-            rx.text(row["avatar"], font_size="18px"),
-            rx.vstack(
-                rx.text(row["name"], font_size="12px", font_weight="600",
-                        color="#111827"),
-                rx.text(row["label"], font_size="10px", color="#9CA3AF",
-                        font_family="monospace"),
-                spacing="0", align="start",
+            rx.box(
+                rx.text(row["cluster_id"], font_size="11px", font_weight="700",
+                        color="#374151", font_family="monospace"),
+                background="#F3F4F6",
+                border="1px solid #E5E7EB",
+                border_radius="6px",
+                padding="4px 10px",
             ),
             spacing="2", align="center", flex="3",
         ),
         # Size
         rx.vstack(
-            rx.text(row["size"].to_string(),
+            rx.text(row["size_n_fmt"],
                     font_size="13px", font_weight="700", color="#111827"),
             rx.text(row["size_pct"].to_string() + "%",
                     font_size="10px", color="#6B7280"),
@@ -58,26 +58,130 @@ def _cluster_row(row: dict) -> rx.Component:
 
 
 def _audit_row(row: dict) -> rx.Component:
-    return rx.hstack(
-        rx.cond(
-            row["status"] == "PASS",
-            rx.badge("✓ PASS", color_scheme="green", variant="soft", size="1"),
+    has_issue   = (row["status"] == "FAIL") | (row["status"] == "WARN")
+    is_expanded = row["expanded"] == "true"
+
+    return rx.vstack(
+        # ── Main row ──────────────────────────────────────────────────────
+        rx.hstack(
+            # Status dot
             rx.cond(
-                row["status"] == "WARN",
-                rx.badge("⚠ WARN", color_scheme="amber", variant="soft", size="1"),
+                row["status"] == "FAIL",
+                rx.box(width="8px", height="8px", border_radius="50%",
+                       background=styles.RED, flex_shrink="0"),
                 rx.cond(
-                    row["status"] == "SKIP",
-                    rx.badge("— SKIP", color_scheme="gray", variant="soft", size="1"),
-                    rx.badge("✕ FAIL", color_scheme="red", variant="solid", size="1"),
+                    row["status"] == "WARN",
+                    rx.box(width="8px", height="8px", border_radius="50%",
+                           background=styles.AMBER, flex_shrink="0"),
+                    rx.box(width="8px", height="8px", border_radius="50%",
+                           background=styles.GREEN, flex_shrink="0"),
                 ),
             ),
+            # S.No chip
+            rx.box(
+                rx.text(row["serial_no"], font_size="10px", font_weight="700",
+                        color="#374151"),
+                background="#F3F4F6",
+                border="1px solid #E5E7EB",
+                border_radius="4px",
+                padding="2px 7px",
+                min_width="36px",
+                text_align="center",
+                flex_shrink="0",
+            ),
+            # Check name chip
+            rx.box(
+                rx.text(row["check"], font_size="10px", font_weight="700",
+                        color="#374151", white_space="nowrap"),
+                background="#F3F4F6",
+                border="1px solid #E5E7EB",
+                border_radius="4px",
+                padding="2px 7px",
+                min_width="180px",
+                flex_shrink="0",
+            ),
+            # Detail text
+            rx.text(
+                row["detail"],
+                font_size="12px", color="#374151",
+                flex="1",
+                word_break="break-word",
+            ),
+            # Status badge
+            rx.cond(
+                row["status"] == "PASS",
+                rx.badge("✓ PASS", color_scheme="green", variant="soft", size="1"),
+                rx.cond(
+                    row["status"] == "WARN",
+                    rx.badge("⚠ WARN", color_scheme="amber", variant="soft", size="1"),
+                    rx.cond(
+                        row["status"] == "SKIP",
+                        rx.badge("— SKIP", color_scheme="gray", variant="soft", size="1"),
+                        rx.badge("✕ FAIL", color_scheme="red", variant="solid", size="1"),
+                    ),
+                ),
+            ),
+            # Expand chevron — only for WARN/FAIL
+            rx.cond(
+                has_issue,
+                rx.button(
+                    rx.cond(is_expanded, "▲", "▼"),
+                    on_click=PipelineState.toggle_audit(row["check"]),
+                    background="transparent",
+                    color="#6B7280",
+                    font_size="10px",
+                    padding="2px 6px",
+                    cursor="pointer",
+                    border="1px solid #E5E7EB",
+                    border_radius="4px",
+                    _hover={"background": "#F9FAFB"},
+                    flex_shrink="0",
+                ),
+                rx.box(width="28px"),
+            ),
+            spacing="3", align="center", width="100%",
+            padding="9px 0",
         ),
-        rx.text(row["check"], font_size="12px", color="#374151", flex="1"),
-        rx.text(row["detail"], font_size="11px", color="#6B7280", flex="2",
-                word_break="break-word"),
-        spacing="3", align="center", width="100%",
-        padding="7px 0",
+        # ── Expanded reason panel ─────────────────────────────────────────
+        rx.cond(
+            is_expanded & has_issue,
+            rx.box(
+                rx.hstack(
+                    rx.box(
+                        width="3px",
+                        min_height="16px",
+                        background=rx.cond(row["status"] == "FAIL", styles.RED, styles.AMBER),
+                        border_radius="2px",
+                        flex_shrink="0",
+                    ),
+                    rx.text(
+                        row["detail"],
+                        font_size="11px",
+                        color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
+                        line_height="1.7",
+                        word_break="break-word",
+                        white_space="pre-wrap",
+                    ),
+                    spacing="2", align="start", width="100%",
+                ),
+                background=rx.cond(
+                    row["status"] == "FAIL", styles.RED_BG, styles.AMBER_BG,
+                ),
+                border=rx.cond(
+                    row["status"] == "FAIL",
+                    f"1px solid {styles.RED}",
+                    f"1px solid {styles.AMBER}",
+                ),
+                border_radius="6px",
+                padding="10px 14px",
+                width="100%",
+                margin_bottom="4px",
+            ),
+            rx.box(),
+        ),
         border_bottom="1px solid #F3F4F6",
+        spacing="0",
+        width="100%",
     )
 
 
@@ -185,8 +289,22 @@ def clustering_page() -> rx.Component:
             rx.vstack(
                 rx.text(PipelineState.s5_silhouette.to_string(),
                         font_size="36px", font_weight="700", color=styles.BLUE),
-                rx.text("Silhouette Score", font_size="12px", font_weight="600",
-                        color="#374151"),
+                rx.hstack(
+                    rx.text("Silhouette Score", font_size="12px", font_weight="600",
+                            color="#374151"),
+                    rx.tooltip(
+                        rx.text("ⓘ", font_size="11px", color=styles.BLUE,
+                                cursor="help", font_weight="600"),
+                        content=(
+                            "Measures how well each user fits their cluster vs others. "
+                            "Range: -1 to +1. "
+                            "≥ 0.5 = Strong (clusters are clearly separated). "
+                            "0.25–0.49 = Reasonable (some overlap, acceptable). "
+                            "< 0.25 = Weak (clusters may not be meaningful)."
+                        ),
+                    ),
+                    spacing="1", align="center",
+                ),
                 rx.text(PipelineState.s5_stability_label,
                         font_size="10px", color="#9CA3AF"),
                 spacing="0", align="center",
@@ -209,7 +327,7 @@ def clustering_page() -> rx.Component:
                                     font_size="14px", font_weight="600",
                                     color="#111827"),
                             rx.text(
-                                "Auto-labelled behavioural segments — "
+                                "Auto-labelled behavioural clusters — "
                                 "churn, completion and reactivation rates per cluster",
                                 font_size="12px", color="#6B7280",
                             ),
@@ -225,7 +343,7 @@ def clustering_page() -> rx.Component:
                     rx.box(height="1px", background="#E5E7EB", width="100%"),
                     # Column headers
                     rx.hstack(
-                        rx.text("Segment", font_size="11px", font_weight="600",
+                        rx.text("Cluster ID", font_size="11px", font_weight="600",
                                 color="#9CA3AF", flex="3"),
                         rx.text("Size", font_size="11px", font_weight="600",
                                 color="#9CA3AF", flex="1", text_align="center"),
@@ -274,12 +392,16 @@ def clustering_page() -> rx.Component:
                     ),
                     rx.box(height="1px", background="#E5E7EB", width="100%"),
                     rx.hstack(
+                        rx.box(width="8px", flex_shrink="0"),   # dot spacer
+                        rx.text("S.No", font_size="11px", font_weight="600",
+                                color="#9CA3AF", min_width="36px"),
+                        rx.text("Check", font_size="11px", font_weight="600",
+                                color="#9CA3AF", min_width="180px"),
+                        rx.text("What is being checked", font_size="11px",
+                                font_weight="600", color="#9CA3AF", flex="1"),
                         rx.text("Status", font_size="11px", font_weight="600",
                                 color="#9CA3AF"),
-                        rx.text("Check", font_size="11px", font_weight="600",
-                                color="#9CA3AF", flex="1"),
-                        rx.text("Detail", font_size="11px", font_weight="600",
-                                color="#9CA3AF", flex="2"),
+                        rx.box(width="28px", flex_shrink="0"),  # chevron spacer
                         spacing="3", width="100%", padding="6px 0",
                     ),
                     rx.foreach(PipelineState.s5_audit_rows, _audit_row),
@@ -310,7 +432,7 @@ def clustering_page() -> rx.Component:
                             ),
                             rx.text(
                                 PipelineState.s5_n_clusters.to_string() +
-                                " segments identified · audit passed · "
+                                " clusters identified · audit passed · "
                                 "ready for persona profiling",
                                 font_size="12px",
                                 color="rgba(255,255,255,0.85)",

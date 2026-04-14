@@ -24,7 +24,7 @@ def topbar() -> rx.Component:
                 rx.cond(PipelineState.active_page == "health",
                     "239 automated quality checks across session & profile data",
                 rx.cond(PipelineState.active_page == "features",
-                    "50-feature ML store · 12-check quality assessment · clustering ready",
+                    "50-feature ML store · 14-check quality assessment · clustering ready",
                 rx.cond(PipelineState.active_page == "clustering",
                     "K-Means behavioural segmentation · stability scoring · audit gate",
                 rx.cond(PipelineState.active_page == "persona",

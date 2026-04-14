@@ -93,12 +93,23 @@ def _check_row(row: dict) -> rx.Component:
         rx.cond(
             is_expanded & has_issue,
             rx.box(
-                rx.text(
-                    row["reason"],
-                    font_size="11px",
-                    color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
-                    line_height="1.6",
-                    word_break="break-word",
+                rx.hstack(
+                    rx.box(
+                        width="3px",
+                        min_height="16px",
+                        background=rx.cond(row["status"] == "FAIL", styles.RED, styles.AMBER),
+                        border_radius="2px",
+                        flex_shrink="0",
+                    ),
+                    rx.text(
+                        row["reason"],
+                        font_size="11px",
+                        color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
+                        line_height="1.7",
+                        word_break="break-word",
+                        white_space="pre-wrap",
+                    ),
+                    spacing="2", align="start", width="100%",
                 ),
                 background=rx.cond(
                     row["status"] == "FAIL", styles.RED_BG, styles.AMBER_BG,
@@ -130,7 +141,7 @@ def health_page() -> rx.Component:
                 rx.hstack(
                     rx.spinner(size="3"),
                     rx.vstack(
-                        rx.text("Running 239 quality checks…", font_size="14px",
+                        rx.text("Running 242 quality checks…", font_size="14px",
                                 font_weight="600", color="#111827"),
                         rx.text(
                             "Null checks · Range validity · Temporal consistency · "

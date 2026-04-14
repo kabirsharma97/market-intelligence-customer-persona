@@ -41,7 +41,7 @@ CHECK_DESCRIPTIONS = {
     "A17":              "Number of sessions stays within per content-type limits",
     "A18":              "Network stress flag aligns with jitter and buffer readings",
     "A19":              "Episode position never exceeds the total episodes in a series",
-    "A_unavailability": "Geo-blocked sessions have zero watch activity and no satisfaction score",
+    "A_20":             "Geo-blocked sessions have zero watch activity and no satisfaction score",
     "B15":              "No duplicate user IDs in profile data",
     "B16":              "Required profile fields have no missing values",
     "B17":              "All profile numeric values are within valid ranges",
@@ -285,6 +285,7 @@ class PipelineState(rx.State):
     s6_active_avatar:        str        = ""
     s6_active_archetype:     str        = ""
     s6_active_size:          int        = 0
+    s6_active_size_fmt:      str        = ""
     s6_active_size_pct:      float      = 0.0
     s6_active_churn:         float      = 0.0
     s6_active_churn_level:   str        = "low"   # "high" | "medium" | "low"
@@ -344,6 +345,15 @@ class PipelineState(rx.State):
             if row["check"] == check
             else row
             for row in self.s4_assessment_rows
+        ]
+
+    def toggle_audit(self, check: str):
+        """Expand or collapse a clustering audit reason row."""
+        self.s5_audit_rows = [
+            {**row, "expanded": "false" if row["expanded"] == "true" else "true"}
+            if row["check"] == check
+            else row
+            for row in self.s5_audit_rows
         ]
 
     def _refresh_upload_flag(self):
@@ -571,6 +581,8 @@ class PipelineState(rx.State):
             summary: list[dict] = []
             for grp, sub in rdf.groupby("group"):
                 grp_str  = str(grp)
+                if grp_str == "A_unavailability":
+                    grp_str = "A_20"
                 n_pass   = int((sub["status"] == "PASS").sum())
                 n_warn   = int((sub["status"] == "WARN").sum())
                 n_fail   = int((sub["status"] == "FAIL").sum())
@@ -578,7 +590,7 @@ class PipelineState(rx.State):
                 grp_status = "FAIL" if n_fail > 0 else ("WARN" if n_warn > 0 else "PASS")
                 # Collect reason text from non-passing rows (for expandable detail)
                 bad_rows   = sub[sub["status"].isin(["FAIL", "WARN"])]
-                reason_str = " · ".join(bad_rows["detail"].tolist()) if len(bad_rows) else ""
+                reason_str = "\n".join(bad_rows["detail"].tolist()) if len(bad_rows) else ""
                 summary.append({
                     "check_group": grp_str,
                     "description": CHECK_DESCRIPTIONS.get(grp_str, grp_str),
@@ -680,7 +692,8 @@ class PipelineState(rx.State):
                                 t in nxt for t in
                                 ["[PASS]","[FAIL]","[WARN]","[SKIP]","===","OVERALL"]
                             ):
-                                detail = nxt
+                                # Strip technical "FSA-XX: " prefix for plain English display
+                                detail = re.sub(r"^FSA-\d+:\s*", "", nxt)
                         assess_rows.append({
                             "check":       clean_name,
                             "description": ASSESS_DESCRIPTIONS.get(clean_name, clean_name),
@@ -777,21 +790,26 @@ class PipelineState(rx.State):
             stab_label = str(stability.get("stability_label", "UNKNOWN"))
 
             cluster_rows: list[dict] = []
-            for cl in clusters:
-                priors = cl.get("behavioral_priors", {})
-                label  = cl.get("behavioral_label", "mixed_behavior")
+            for i, cl in enumerate(clusters):
+                priors     = cl.get("behavioral_priors", {})
+                label      = cl.get("behavioral_label", "mixed_behavior")
+                cl_index   = cl.get("cluster_index", i)
+                cluster_id = f"cluster_{cl_index}"
                 churn  = float(priors.get("base_churn_30d", 0.0))
                 comp   = float(priors.get("base_completion", 0.0))
                 react  = float(priors.get("base_reactivation", 0.0))
                 size   = int(cl.get("size", 0))
                 pct    = float(cl.get("cluster_share_pct", 0.0))
+                # Fallback: compute pct from size / total events if not provided
+                if pct == 0.0 and n_events > 0:
+                    pct = size / n_events * 100
                 churn_pct = round(churn * 100, 1)
                 churn_level = "high" if churn_pct > 60 else ("medium" if churn_pct > 35 else "low")
                 cluster_rows.append({
+                    "cluster_id":  cluster_id,
                     "label":       label,
-                    "name":        PERSONA_NAMES.get(label, label.replace("_"," ").title()),
-                    "avatar":      PERSONA_AVATARS.get(label, "👤"),
                     "size":        size,
+                    "size_n_fmt":  f"{size:,}",
                     "size_pct":    round(pct, 1),
                     "churn":       churn_pct,
                     "churn_level": churn_level,
@@ -820,11 +838,14 @@ class PipelineState(rx.State):
             res2 = await loop.run_in_executor(None, lambda: _run_cmd(cmd_audit, timeout=120))
 
             audit_rows: list[dict] = []
+            audit_serial = 0
             tag_map = {"[PASS]":"PASS","[FAIL]":"FAIL","[WARN]":"WARN","[SKIP]":"SKIP"}
             for i, line in enumerate(res2.stdout.splitlines()):
                 for tag, status in tag_map.items():
                     if tag in line:
-                        check_name = line.replace(tag,"").strip()
+                        raw_name   = line.replace(tag,"").strip()
+                        # Strip leading numeric prefix e.g. "1_assignment_completeness" → "assignment_completeness"
+                        check_name = re.sub(r"^\d+_", "", raw_name)
                         detail = ""
                         lines2 = res2.stdout.splitlines()
                         if i + 1 < len(lines2):
@@ -834,14 +855,23 @@ class PipelineState(rx.State):
                                 ["[PASS]","[FAIL]","[WARN]","[SKIP]","===","OVERALL","──"]
                             ):
                                 detail = nxt
-                        audit_rows.append({"check": check_name, "status": status, "detail": detail})
+                        audit_serial += 1
+                        audit_rows.append({
+                            "serial_no": str(audit_serial),
+                            "check":     check_name,
+                            "status":    status,
+                            "detail":    detail,
+                            "expanded":  "false",
+                        })
                         break
 
             if not audit_rows:
                 audit_rows = [{
+                    "serial_no": "1",
                     "check":  "Audit result",
                     "status": "PASS" if res2.returncode == 0 else "FAIL",
                     "detail": (res2.stdout or res2.stderr)[:300],
+                    "expanded": "false",
                 }]
 
             audit_passed = res2.returncode == 0 and all(
@@ -966,6 +996,7 @@ class PipelineState(rx.State):
                     "archetype":   p.get("archetype", "").replace("_", " ").title(),
                     "description": PERSONA_DESCRIPTIONS.get(label, ""),
                     "size":        int(p.get("size", 0)),
+                    "size_fmt":    f"{int(p.get('size', 0)):,}",
                     "size_pct":    round(float(p.get("size_pct", 0.0)), 1),
                     # Priors
                     "churn":       churn_pct_p,
@@ -1021,6 +1052,7 @@ class PipelineState(rx.State):
         self.s6_active_avatar        = p.get("avatar", "👤")
         self.s6_active_archetype     = p.get("archetype", "")
         self.s6_active_size          = p.get("size", 0)
+        self.s6_active_size_fmt      = f"{int(p.get('size', 0)):,}"
         self.s6_active_size_pct      = p.get("size_pct", 0.0)
         self.s6_active_churn         = p.get("churn", 0.0)
         self.s6_active_churn_level   = p.get("churn_level", "low")

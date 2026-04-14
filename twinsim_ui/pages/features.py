@@ -32,6 +32,7 @@ def _assess_row(row: dict) -> rx.Component:
                 border="1px solid #E5E7EB",
                 border_radius="4px",
                 padding="2px 7px",
+                min_width="160px",
                 flex_shrink="0",
             ),
             # Plain English description
@@ -78,12 +79,23 @@ def _assess_row(row: dict) -> rx.Component:
         rx.cond(
             is_expanded & has_issue,
             rx.box(
-                rx.text(
-                    row["detail"],
-                    font_size="11px",
-                    color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
-                    line_height="1.6",
-                    word_break="break-word",
+                rx.hstack(
+                    rx.box(
+                        width="3px",
+                        min_height="16px",
+                        background=rx.cond(row["status"] == "FAIL", styles.RED, styles.AMBER),
+                        border_radius="2px",
+                        flex_shrink="0",
+                    ),
+                    rx.text(
+                        row["detail"],
+                        font_size="11px",
+                        color=rx.cond(row["status"] == "FAIL", styles.RED, "#92400E"),
+                        line_height="1.7",
+                        word_break="break-word",
+                        white_space="pre-wrap",
+                    ),
+                    spacing="2", align="start", width="100%",
                 ),
                 background=rx.cond(
                     row["status"] == "FAIL", styles.RED_BG, styles.AMBER_BG,
@@ -119,7 +131,7 @@ def features_page() -> rx.Component:
                                 font_size="14px", font_weight="600", color="#111827"),
                         rx.text(
                             "feature_store.py — engineering 50 ML-ready features · "
-                            "then running 12-check quality assessment",
+                            "then running 14-check quality assessment",
                             font_size="12px", color="#6B7280",
                         ),
                         spacing="0", align="start",
@@ -214,7 +226,7 @@ def features_page() -> rx.Component:
                         rx.vstack(
                             rx.text("Feature Store Quality Assessment",
                                     font_size="14px", font_weight="600", color="#111827"),
-                            rx.text("12-check gate — completeness, ranges, variance, "
+                            rx.text("14-check gate — completeness, ranges, variance, "
                                     "behavioural ordering, trajectory quality",
                                     font_size="12px", color="#6B7280"),
                             spacing="0", align="start",
@@ -233,7 +245,7 @@ def features_page() -> rx.Component:
                     rx.hstack(
                         rx.box(width="8px", flex_shrink="0"),    # dot spacer
                         rx.text("Check", font_size="11px", font_weight="600",
-                                color="#9CA3AF"),
+                                color="#9CA3AF", min_width="160px"),
                         rx.text("What is being checked", font_size="11px",
                                 font_weight="600", color="#9CA3AF", flex="1"),
                         rx.text("Status", font_size="11px", font_weight="600",
@@ -268,8 +280,8 @@ def features_page() -> rx.Component:
                                 "feature_store.csv — " +
                                 PipelineState.s4_total_features.to_string() +
                                 " ML-ready features · " +
-                                PipelineState.s4_users.to_string() +
-                                " records · all 12 quality checks passed.",
+                                PipelineState.s4_users_fmt +
+                                " records · all 14 quality checks passed.",
                                 font_size="12px", color="rgba(255,255,255,0.85)",
                             ),
                             spacing="1", align="start",
