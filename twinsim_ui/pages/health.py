@@ -205,7 +205,7 @@ def health_page() -> rx.Component:
                 rx.text(PipelineState.s3_info.to_string(),
                         font_size="32px", font_weight="700", color="#3B82F6"),
                 rx.hstack(
-                    rx.text("Informational", font_size="12px",
+                    rx.text("Expected Gaps", font_size="12px",
                             font_weight="600", color="#374151"),
                     rx.tooltip(
                         rx.text("ⓘ", font_size="11px", color="#3B82F6",
