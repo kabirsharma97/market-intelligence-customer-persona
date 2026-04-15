@@ -232,6 +232,7 @@ class PipelineState(rx.State):
     # ── Step 3: Health ──────────────────────────────────────────────────────────
     s3_total_checks:    int        = 0
     s3_passed:          int        = 0
+    s3_info:            int        = 0
     s3_warned:          int        = 0
     s3_failed:          int        = 0
     s3_check_rows:      List[dict] = []
@@ -574,6 +575,7 @@ class PipelineState(rx.State):
             rdf = await loop.run_in_executor(None, lambda: _load_csv(report_out))
             total  = len(rdf)
             passed = int((rdf["status"] == "PASS").sum())
+            info   = int((rdf["status"] == "INFO").sum())
             warned = int((rdf["status"] == "WARN").sum())
             failed = int((rdf["status"] == "FAIL").sum())
 
@@ -607,6 +609,7 @@ class PipelineState(rx.State):
             gate = failed == 0
             self.s3_total_checks = total
             self.s3_passed       = passed
+            self.s3_info         = info
             self.s3_warned       = warned
             self.s3_failed       = failed
             self.s3_check_rows   = summary

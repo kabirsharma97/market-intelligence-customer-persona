@@ -194,10 +194,36 @@ def health_page() -> rx.Component:
                 rx.text(PipelineState.s3_passed.to_string(),
                         font_size="32px", font_weight="700", color=styles.GREEN),
                 rx.text("Passed", font_size="12px", font_weight="600", color="#374151"),
-                rx.text("Zero anomalies", font_size="10px", color="#9CA3AF"),
+                rx.text("Zero anomalies detected", font_size="10px", color="#9CA3AF"),
                 spacing="0", align="center",
                 padding="16px", background=styles.GREEN_BG,
                 border=f"1px solid {styles.GREEN}", border_radius="12px",
+                flex="1",
+            ),
+            # ── Informational Notices tile ─────────────────────────────────
+            rx.vstack(
+                rx.text(PipelineState.s3_info.to_string(),
+                        font_size="32px", font_weight="700", color="#3B82F6"),
+                rx.hstack(
+                    rx.text("Informational", font_size="12px",
+                            font_weight="600", color="#374151"),
+                    rx.tooltip(
+                        rx.text("ⓘ", font_size="11px", color="#3B82F6",
+                                cursor="help", font_weight="600"),
+                        content=(
+                            "These are expected observations, not problems. "
+                            "For example: optional columns like 'ticket_count' or "
+                            "'ppv_purchase_count' that are intentionally blank for "
+                            "users who never used those features. "
+                            "They do NOT affect the health gate."
+                        ),
+                    ),
+                    spacing="1", align="center",
+                ),
+                rx.text("Expected sparse fields", font_size="10px", color="#9CA3AF"),
+                spacing="0", align="center",
+                padding="16px", background="#EFF6FF",
+                border="1px solid #3B82F6", border_radius="12px",
                 flex="1",
             ),
             rx.vstack(
@@ -229,7 +255,7 @@ def health_page() -> rx.Component:
                 border_radius="12px",
                 flex="1",
             ),
-            columns="4", spacing="3", width="100%",
+            columns="5", spacing="3", width="100%",
         ),
 
         # ── Check list ─────────────────────────────────────────────────────────
