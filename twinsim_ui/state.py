@@ -41,7 +41,7 @@ CHECK_DESCRIPTIONS = {
     "A17":              "Number of sessions stays within per content-type limits",
     "A18":              "Network stress flag aligns with jitter and buffer readings",
     "A19":              "Episode position never exceeds the total episodes in a series",
-    "A_20":             "Geo-blocked sessions have zero watch activity and no satisfaction score",
+    "A20":              "Geo-blocked sessions have zero watch activity and no satisfaction score",
     "B15":              "No duplicate user IDs in profile data",
     "B16":              "Required profile fields have no missing values",
     "B17":              "All profile numeric values are within valid ranges",
@@ -584,7 +584,7 @@ class PipelineState(rx.State):
             for grp, sub in rdf.groupby("group"):
                 grp_str  = str(grp)
                 if grp_str == "A_unavailability":
-                    grp_str = "A_20"
+                    grp_str = "A20"
                 n_pass   = int((sub["status"] == "PASS").sum())
                 n_warn   = int((sub["status"] == "WARN").sum())
                 n_fail   = int((sub["status"] == "FAIL").sum())
